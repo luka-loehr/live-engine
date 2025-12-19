@@ -232,21 +232,16 @@ struct DownloadPromptToast: View {
                 dismissTask?.cancel()
                 onDownloadStarted()
                 Task {
-                    await wallpaperManager.downloadVideo(entry: entry)
-                    // Wait a bit for the download to complete and update the entry
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                    // Find the updated entry and notify completion
-                    // Poll for download completion
-                    var attempts = 0
-                    while attempts < 20 {
+                    let success = await wallpaperManager.downloadVideo(entry: entry)
+                    if success {
+                        // Wait a moment for UI to update
+                        try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                        // Find the updated entry and notify completion
                         if let updatedEntry = wallpaperManager.videoEntries.first(where: { $0.id == entry.id && $0.isDownloaded && !$0.isDownloading }) {
                             await MainActor.run {
                                 onDownloadComplete(updatedEntry)
                             }
-                            break
                         }
-                        try? await Task.sleep(nanoseconds: 250_000_000) // 0.25 seconds
-                        attempts += 1
                     }
                 }
             }) {
@@ -1062,8 +1057,8 @@ struct ExploreView: View {
             }
             
             for video in result.videos {
-                async let thumbnailTask = loadThumbnail(for: video)
-                async let sizeTask = loadDownloadSize(for: video)
+                async let thumbnailTask: Void = loadThumbnail(for: video)
+                async let sizeTask: Void = loadDownloadSize(for: video)
                 _ = await (thumbnailTask, sizeTask)
             }
         } catch {

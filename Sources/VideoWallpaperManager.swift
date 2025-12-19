@@ -257,18 +257,20 @@ class VideoWallpaperManager: ObservableObject {
     
     // MARK: - Download & Playback
     
-    func downloadVideo(entry: VideoEntry) async {
+    func downloadVideo(entry: VideoEntry) async -> Bool {
         // Check database for existing video file first
         let existingFiles = db.getVideoFiles(videoId: entry.id, includeTemporary: false)
         if let videoFile = existingFiles.first(where: { $0.fileType == "video" }),
            FileManager.default.fileExists(atPath: videoFile.filePath) {
             // Already downloaded, update status
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].isDownloaded = true
-                videoEntries[index].videoURL = URL(fileURLWithPath: videoFile.filePath)
+                var updatedEntry = videoEntries[index]
+                updatedEntry.isDownloaded = true
+                updatedEntry.videoURL = URL(fileURLWithPath: videoFile.filePath)
+                videoEntries[index] = updatedEntry
             }
             db.updateLibraryEntry(id: entry.id, isDownloaded: true)
-            return
+            return true
         }
         
         // Otherwise, download first
@@ -276,8 +278,10 @@ class VideoWallpaperManager: ObservableObject {
         
         // Update entry to show downloading state
         if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-            videoEntries[index].isDownloading = true
-            videoEntries[index].downloadProgress = 0.0
+            var updatedEntry = videoEntries[index]
+            updatedEntry.isDownloading = true
+            updatedEntry.downloadProgress = 0.0
+            videoEntries[index] = updatedEntry
         }
         
         // Track expected output file as temporary before download starts
@@ -287,10 +291,12 @@ class VideoWallpaperManager: ObservableObject {
         } catch {
             print("Failed to fetch format: \(error)")
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].isDownloading = false
-                videoEntries[index].downloadProgress = 0.0
+                var updatedEntry = videoEntries[index]
+                updatedEntry.isDownloading = false
+                updatedEntry.downloadProgress = 0.0
+                videoEntries[index] = updatedEntry
             }
-            return
+            return false
         }
         let outputPath = videosDirectory.appendingPathComponent("\(entry.id)_\(height)p.mp4")
         
@@ -373,8 +379,8 @@ class VideoWallpaperManager: ObservableObject {
             // Update database
             db.updateLibraryEntry(id: entry.id, isDownloaded: true, lastPlayedAt: Date())
             
-            // Return without auto-playing - let user decide
-            return
+            // Return success without auto-playing - let user decide
+            return true
             
         } catch {
             print("Download error: \(error)")
@@ -383,9 +389,12 @@ class VideoWallpaperManager: ObservableObject {
             db.deleteTemporaryFiles(videoId: entry.id)
             
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].isDownloading = false
-                videoEntries[index].downloadProgress = 0.0
+                var updatedEntry = videoEntries[index]
+                updatedEntry.isDownloading = false
+                updatedEntry.downloadProgress = 0.0
+                videoEntries[index] = updatedEntry
             }
+            return false
         }
     }
     
