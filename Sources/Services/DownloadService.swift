@@ -5,6 +5,27 @@ actor DownloadService {
     
     private init() {}
     
+    // Helper to add timeout to async operations
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw DownloadError.parsingFailed // Timeout error
+            }
+            
+            guard let result = try await group.next() else {
+                throw DownloadError.parsingFailed
+            }
+            
+            group.cancelAll()
+            return result
+        }
+    }
+    
     struct YTDLFormat: Decodable {
         let format_id: String
         let vcodec: String?
@@ -70,46 +91,48 @@ actor DownloadService {
     func fetchBestFormat(url: String) async throws -> (id: String, height: Int, width: Int, size: Int64?) {
         guard let ytdlp = findYtDlp() else { throw DownloadError.ytdlpNotFound }
         
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ytdlp)
-        process.arguments = ["-J", url]
-        
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        
-        guard process.terminationStatus == 0 else {
-            throw DownloadError.parsingFailed
+        return try await withTimeout(seconds: 10) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: ytdlp)
+            process.arguments = ["-J", url]
+            
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            
+            guard process.terminationStatus == 0 else {
+                throw DownloadError.parsingFailed
+            }
+            
+            let info = try JSONDecoder().decode(YTDLInfo.self, from: data)
+            let videoFormats = info.formats.filter { $0.isVideo }
+            
+            guard let best = videoFormats.max(by: { a, b in
+                let resA = (a.width ?? 0) * (a.height ?? 0)
+                let resB = (b.width ?? 0) * (b.height ?? 0)
+                if resA != resB { return resA < resB }
+                let fpsA = a.fps ?? 0
+                let fpsB = b.fps ?? 0
+                if fpsA != fpsB { return fpsA < fpsB }
+                return (a.tbr ?? 0) < (b.tbr ?? 0)
+            }) else {
+                throw DownloadError.parsingFailed
+            }
+            
+            // Calculate total size: video format + best audio format
+            var totalSize = best.filesize ?? 0
+            
+            // Find best audio format
+            let audioFormats = info.formats.filter { $0.vcodec == "none" }
+            if let bestAudio = audioFormats.max(by: { ($0.tbr ?? 0) < ($1.tbr ?? 0) }) {
+                totalSize += (bestAudio.filesize ?? 0)
+            }
+            
+            return (best.format_id, best.height ?? 0, best.width ?? 0, totalSize > 0 ? totalSize : nil)
         }
-        
-        let info = try JSONDecoder().decode(YTDLInfo.self, from: data)
-        let videoFormats = info.formats.filter { $0.isVideo }
-        
-        guard let best = videoFormats.max(by: { a, b in
-            let resA = (a.width ?? 0) * (a.height ?? 0)
-            let resB = (b.width ?? 0) * (b.height ?? 0)
-            if resA != resB { return resA < resB }
-            let fpsA = a.fps ?? 0
-            let fpsB = b.fps ?? 0
-            if fpsA != fpsB { return fpsA < fpsB }
-            return (a.tbr ?? 0) < (b.tbr ?? 0)
-        }) else {
-            throw DownloadError.parsingFailed
-        }
-        
-        // Calculate total size: video format + best audio format
-        var totalSize = best.filesize ?? 0
-        
-        // Find best audio format
-        let audioFormats = info.formats.filter { $0.vcodec == "none" }
-        if let bestAudio = audioFormats.max(by: { ($0.tbr ?? 0) < ($1.tbr ?? 0) }) {
-            totalSize += (bestAudio.filesize ?? 0)
-        }
-        
-        return (best.format_id, best.height ?? 0, best.width ?? 0, totalSize > 0 ? totalSize : nil)
     }
     
     func downloadVideo(
