@@ -494,10 +494,10 @@ struct VideoEntryCard: View {
                             .aspectRatio(16/9, contentMode: .fill)
                             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                             .clipped()
-                            .opacity(entry.videoURL == nil ? 0.5 : 1.0)
+                            .opacity(entry.isDownloaded ? 1.0 : 0.5)
                             .overlay(
                                 // Grey overlay for undownloaded videos
-                                entry.videoURL == nil ?
+                                !entry.isDownloaded ?
                                 Rectangle()
                                     .fill(Color.black.opacity(0.3))
                                     .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
@@ -592,8 +592,8 @@ struct VideoEntryCard: View {
                 .scaleEffect(isHovering ? 1.02 : 1.0)
                 .onTapGesture {
                     if !isHoveringTrash {
-                        // Check if video is downloaded
-                        if entry.videoURL == nil {
+                        // Check if video is downloaded using database status
+                        if !entry.isDownloaded {
                             // Show download prompt toast
                             onShowDownloadPrompt(entry)
                         } else {

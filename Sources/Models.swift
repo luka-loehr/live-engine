@@ -23,6 +23,7 @@ struct VideoEntry: Identifiable, Equatable {
     var name: String
     var thumbnail: NSImage?
     var videoURL: URL?
+    var isDownloaded: Bool = false
     var isDownloading: Bool = false
     var downloadProgress: Double = 0.0
     

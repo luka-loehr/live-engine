@@ -97,13 +97,30 @@ class VideoWallpaperManager: ObservableObject {
             let videoFile = videoFiles.first { $0.fileType == "video" }
             let videoURL = videoFile.map { URL(fileURLWithPath: $0.filePath) }
             
+            // Verify file actually exists - sync database status if needed
+            var isDownloaded = libraryEntry.isDownloaded
+            if isDownloaded {
+                // If database says downloaded but file doesn't exist, update database
+                if let url = videoURL, !FileManager.default.fileExists(atPath: url.path) {
+                    isDownloaded = false
+                    db.updateLibraryEntry(id: videoID, isDownloaded: false)
+                }
+            } else {
+                // If database says not downloaded but file exists, update database
+                if let url = videoURL, FileManager.default.fileExists(atPath: url.path) {
+                    isDownloaded = true
+                    db.updateLibraryEntry(id: videoID, isDownloaded: true)
+                }
+            }
+            
             entries.append(VideoEntry(
                 id: videoID,
                 name: libraryEntry.title,
                 thumbnail: thumbnail,
                 videoURL: videoURL,
+                isDownloaded: isDownloaded,
                 isDownloading: false,
-                downloadProgress: videoURL != nil ? 1.0 : 0.0
+                downloadProgress: isDownloaded ? 1.0 : 0.0
             ))
         }
         
@@ -167,7 +184,8 @@ class VideoWallpaperManager: ObservableObject {
         let entry = VideoEntry(
             id: videoID,
             name: videoID,
-            thumbnail: nil
+            thumbnail: nil,
+            isDownloaded: false
         )
         videoEntries.insert(entry, at: 0)
         
@@ -339,9 +357,10 @@ class VideoWallpaperManager: ObservableObject {
             // Clean up temporary files from disk and database
             db.deleteTemporaryFiles(videoId: entry.id)
             
-            // Update entry with video URL
+            // Update entry with video URL and download status
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
                 videoEntries[index].videoURL = finalPath
+                videoEntries[index].isDownloaded = true
                 videoEntries[index].isDownloading = false
                 videoEntries[index].downloadProgress = 1.0
             }
