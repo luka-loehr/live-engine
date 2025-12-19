@@ -6,94 +6,180 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var selectedTab: TabSelection = .myWallpaper
     
-    enum TabSelection {
+    enum TabSelection: CaseIterable {
         case myWallpaper
         case explore
+        
+        var title: String {
+            switch self {
+            case .myWallpaper: return "Library"
+            case .explore: return "Discover"
+            }
+        }
+        
+        var icon: String {
+            switch self {
+            case .myWallpaper: return "square.grid.2x2"
+            case .explore: return "sparkles"
+            }
+        }
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with Tabs
+        ZStack {
+            // Subtle gradient background
+            LinearGradient(
+                colors: [
+                    Color(nsColor: NSColor.windowBackgroundColor),
+                    Color(nsColor: NSColor.windowBackgroundColor).opacity(0.95)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
             VStack(spacing: 0) {
-                HStack {
-                    Text(selectedTab == .myWallpaper ? "My Wallpapers" : "Explore")
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                // Compact Header
+                HStack(spacing: 12) {
+                    // Tab Switcher
+                    SegmentedTabBar(selectedTab: $selectedTab)
+                    
                     Spacer()
                     
-                    Button(action: { showingSettings.toggle() }) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
+                    // Action Buttons
+                    HStack(spacing: 4) {
+                        IconButton(icon: "gearshape.fill", size: 12) {
+                            showingSettings.toggle()
+                        }
+                        .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
+                            SettingsView(wallpaperManager: wallpaperManager)
+                                .frame(width: 200)
+                        }
+                        
+                        IconButton(icon: "xmark", size: 10, weight: .semibold) {
+                            NSApplication.shared.terminate(nil)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showingSettings) {
-                        SettingsView(wallpaperManager: wallpaperManager)
-                            .frame(width: 220)
-                    }
-                    
-                    Button(action: { NSApplication.shared.terminate(nil) }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(VisualEffectView(material: .headerView, blendingMode: .withinWindow))
+                .padding(.vertical, 14)
                 
-                // Tab Bar
-                HStack(spacing: 0) {
-                    TabButton(title: "My Wallpapers", isSelected: selectedTab == .myWallpaper) {
-                        selectedTab = .myWallpaper
-                    }
-                    TabButton(title: "Explore", isSelected: selectedTab == .explore) {
-                        selectedTab = .explore
+                // Content Area
+                ZStack {
+                    if showingURLInput {
+                        URLInputView(wallpaperManager: wallpaperManager, isPresented: $showingURLInput)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    } else {
+                        if selectedTab == .myWallpaper {
+                            LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
+                                .transition(.opacity)
+                        } else {
+                            ExploreView(wallpaperManager: wallpaperManager)
+                                .transition(.opacity)
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(VisualEffectView(material: .headerView, blendingMode: .withinWindow))
-            }
-            
-            Divider()
-            
-            // Content
-            if showingURLInput {
-                URLInputView(wallpaperManager: wallpaperManager, isPresented: $showingURLInput)
-            } else {
-                if selectedTab == .myWallpaper {
-                    LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
-                } else {
-                    ExploreView(wallpaperManager: wallpaperManager)
-                }
+                .animation(.easeInOut(duration: 0.2), value: selectedTab)
+                .animation(.easeInOut(duration: 0.2), value: showingURLInput)
             }
         }
-        .frame(width: 420, height: 360)
+        .frame(width: 460, height: 380)
     }
 }
 
-// MARK: - Tab Button
+// MARK: - Segmented Tab Bar
 
-struct TabButton: View {
-    let title: String
+struct SegmentedTabBar: View {
+    @Binding var selectedTab: ContentView.TabSelection
+    @Namespace private var tabAnimation
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(ContentView.TabSelection.allCases, id: \.self) { tab in
+                TabItem(
+                    tab: tab,
+                    isSelected: selectedTab == tab,
+                    namespace: tabAnimation
+                ) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        selectedTab = tab
+                    }
+                }
+            }
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+    }
+}
+
+struct TabItem: View {
+    let tab: ContentView.TabSelection
     let isSelected: Bool
+    var namespace: Namespace.ID
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .foregroundColor(isSelected ? .primary : .secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+            HStack(spacing: 6) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 11, weight: .medium))
+                Text(tab.title)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundColor(isSelected ? .white : .secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.4, green: 0.5, blue: 0.95),
+                                    Color(red: 0.35, green: 0.4, blue: 0.85)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.4), radius: 4, y: 2)
+                        .matchedGeometryEffect(id: "tab", in: namespace)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Icon Button
+
+struct IconButton: View {
+    let icon: String
+    var size: CGFloat = 12
+    var weight: Font.Weight = .regular
+    let action: () -> Void
+    @State private var isHovering = false
+    
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size, weight: weight))
+                .foregroundColor(isHovering ? .primary : .secondary)
+                .frame(width: 26, height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                    Circle()
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.8 : 0.4))
                 )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
     }
 }
 
@@ -104,46 +190,122 @@ struct URLInputView: View {
     @Binding var isPresented: Bool
     @State private var urlInput: String = ""
     @FocusState private var isInputFocused: Bool
+    @State private var isHoveringCancel = false
     
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
             
-            VStack(spacing: 20) {
-                Text("Add Wallpaper")
-                    .font(.title3)
-                    .fontWeight(.medium)
-                
-                VStack(spacing: 16) {
-                    TextField("Paste YouTube link", text: $urlInput)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 14))
-                        .focused($isInputFocused)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-                        .cornerRadius(8)
-                        .onSubmit(startDownload)
+            VStack(spacing: 24) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.4, green: 0.5, blue: 0.95).opacity(0.2),
+                                    Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.1)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 56, height: 56)
                     
-                    HStack(spacing: 12) {
-                        Button("Cancel") {
-                            isPresented = false
+                    Image(systemName: "link.badge.plus")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.45, green: 0.55, blue: 1.0),
+                                    Color(red: 0.4, green: 0.45, blue: 0.9)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                
+                VStack(spacing: 6) {
+                    Text("Add Wallpaper")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Paste a YouTube link to add it to your library")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                
+                VStack(spacing: 14) {
+                    HStack(spacing: 0) {
+                        Image(systemName: "link")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .frame(width: 36)
+                        
+                        TextField("youtube.com/watch?v=...", text: $urlInput)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .focused($isInputFocused)
+                            .onSubmit(startDownload)
+                        
+                        if !urlInput.isEmpty {
+                            Button(action: { urlInput = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary.opacity(0.6))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, 10)
+                        }
+                    }
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    )
+                    
+                    HStack(spacing: 10) {
+                        Button(action: { isPresented = false }) {
+                            Text("Cancel")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(isHoveringCancel ? .primary : .secondary)
+                                .frame(width: 80, height: 32)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(nsColor: .controlBackgroundColor).opacity(isHoveringCancel ? 0.8 : 0.5))
+                                )
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(.secondary)
+                        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { isHoveringCancel = h } }
                         
                         Button(action: startDownload) {
-                            Text("Add")
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 6)
+                            Text("Add to Library")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 32)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: urlInput.isEmpty
+                                                            ? [Color.gray.opacity(0.3), Color.gray.opacity(0.25)]
+                                                            : [Color(red: 0.4, green: 0.5, blue: 0.95), Color(red: 0.35, green: 0.4, blue: 0.85)],
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    )
+                                                )
+                                                .shadow(color: urlInput.isEmpty ? .clear : Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.3), radius: 4, y: 2)
+                                        )
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.plain)
                         .disabled(urlInput.isEmpty)
                     }
                 }
-                .frame(maxWidth: 280)
+                .frame(width: 280)
             }
             .padding(.horizontal, 32)
             
@@ -171,19 +333,19 @@ struct LibraryView: View {
     @Binding var showingURLInput: Bool
     
     let columns = [
-        GridItem(.adaptive(minimum: 130), spacing: 14)
+        GridItem(.adaptive(minimum: 140), spacing: 12)
     ]
     
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 10) {
+            LazyVGrid(columns: columns, spacing: 12) {
                 AddWallpaperCard(showingURLInput: $showingURLInput)
                 
                 ForEach(wallpaperManager.videoEntries) { entry in
                     VideoEntryCard(entry: entry, wallpaperManager: wallpaperManager)
                 }
             }
-            .padding(12)
+            .padding(16)
         }
     }
 }
@@ -198,27 +360,87 @@ struct AddWallpaperCard: View {
         GeometryReader { geometry in
             Button(action: { showingURLInput = true }) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(
-                            style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])
+                    // Background with gradient
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.9 : 0.5),
+                                    Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.7 : 0.3)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                        .foregroundColor(isHovering ? .accentColor.opacity(0.8) : .secondary.opacity(0.3))
-                        .animation(.easeInOut(duration: 0.2), value: isHovering)
                     
-                    Image(systemName: "plus")
-                        .font(.system(size: 24, weight: .ultraLight))
-                        .foregroundColor(isHovering ? .accentColor : .secondary.opacity(0.6))
-                        .animation(.easeInOut(duration: 0.2), value: isHovering)
+                    // Border glow on hover
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(
+                            LinearGradient(
+                                colors: isHovering ? [
+                                    Color(red: 0.45, green: 0.55, blue: 1.0).opacity(0.6),
+                                    Color(red: 0.4, green: 0.45, blue: 0.9).opacity(0.3)
+                                ] : [
+                                    Color.primary.opacity(0.1),
+                                    Color.primary.opacity(0.05)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                    
+                    // Content
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: isHovering ? [
+                                            Color(red: 0.4, green: 0.5, blue: 0.95).opacity(0.3),
+                                            Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.15)
+                                        ] : [
+                                            Color.primary.opacity(0.08),
+                                            Color.primary.opacity(0.04)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 36, height: 36)
+                            
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(
+                                    isHovering
+                                        ? LinearGradient(
+                                            colors: [
+                                                Color(red: 0.5, green: 0.6, blue: 1.0),
+                                                Color(red: 0.45, green: 0.5, blue: 0.95)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                        : LinearGradient(
+                                            colors: [Color.secondary, Color.secondary],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                )
+                        }
+                        
+                        Text("Add New")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(isHovering ? .primary : .secondary)
+                    }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
-                .cornerRadius(8)
             }
             .buttonStyle(.plain)
         }
         .aspectRatio(16/9, contentMode: .fit)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 isHovering = hovering
             }
         }
@@ -237,9 +459,9 @@ struct VideoEntryCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Thumbnail with title overlay
             GeometryReader { geometry in
                 ZStack(alignment: .bottomLeading) {
+                    // Thumbnail
                     if let thumbnail = entry.thumbnail {
                         Image(nsImage: thumbnail)
                             .resizable()
@@ -248,102 +470,133 @@ struct VideoEntryCard: View {
                             .clipped()
                     } else {
                         Rectangle()
-                            .fill(Color.gray.opacity(0.15))
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(nsColor: .controlBackgroundColor).opacity(0.6),
+                                        Color(nsColor: .controlBackgroundColor).opacity(0.3)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
+                            .overlay(
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                            )
                     }
                     
-                    // Single background bar with title and trash icon - only on hover
-                    if isHovering {
-                        VStack {
+                    // Gradient overlay at bottom
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0),
+                            Color.black.opacity(isHovering ? 0.8 : 0.5)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: geometry.size.width * 9/16 * 0.5)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    
+                    // Title and controls bar
+                    VStack {
+                        Spacer()
+                        HStack(alignment: .center, spacing: 8) {
+                            if isEditingTitle {
+                                TextField("Title", text: $editedTitle)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .textFieldStyle(.plain)
+                                    .foregroundColor(.white)
+                                    .onSubmit {
+                                        if !editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            wallpaperManager.renameEntry(entry, newName: editedTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+                                        }
+                                        isEditingTitle = false
+                                    }
+                                    .onAppear { editedTitle = entry.name }
+                            } else {
+                                Text(entry.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                                    .foregroundColor(.white)
+                                    .onTapGesture {
+                                        isEditingTitle = true
+                                        editedTitle = entry.name
+                                    }
+                            }
+                            
                             Spacer()
-                            HStack(alignment: .center, spacing: 8) {
-                                // Title - left side
-                                if isEditingTitle {
-                                    TextField("Title", text: $editedTitle)
+                            
+                            // Delete button - only on hover
+                            if isHovering {
+                                Button(action: { wallpaperManager.deleteEntry(entry) }) {
+                                    Image(systemName: "trash.fill")
                                         .font(.system(size: 10))
-                                        .textFieldStyle(.plain)
-                                        .multilineTextAlignment(.leading)
-                                        .foregroundColor(.white)
-                                        .onSubmit {
-                                            if !editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                                wallpaperManager.renameEntry(entry, newName: editedTitle.trimmingCharacters(in: .whitespacesAndNewlines))
-                                            }
-                                            isEditingTitle = false
-                                        }
-                                        .onAppear {
-                                            editedTitle = entry.name
-                                        }
-                                } else {
-                                    Text(entry.name)
-                                        .font(.system(size: 10))
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                        .foregroundColor(.white)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .onTapGesture {
-                                            isEditingTitle = true
-                                            editedTitle = entry.name
-                                        }
-                                }
-                                
-                                Spacer()
-                                
-                                // Delete button - right side
-                                Button(action: {
-                                    wallpaperManager.deleteEntry(entry)
-                                }) {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(isHoveringTrash ? .red : .white)
-                                        .frame(width: 20, height: 20)
-                                        .opacity(isHoveringTrash ? 1.0 : 0.8)
+                                        .foregroundColor(isHoveringTrash ? Color(red: 1, green: 0.4, blue: 0.4) : .white.opacity(0.8))
+                                        .frame(width: 22, height: 22)
+                                        .background(
+                                            Circle()
+                                                .fill(isHoveringTrash ? Color.red.opacity(0.2) : Color.white.opacity(0.1))
+                                        )
                                 }
                                 .buttonStyle(.plain)
-                                .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isHoveringTrash = hovering
-                                    }
+                                .onHover { h in
+                                    withAnimation(.easeOut(duration: 0.15)) { isHoveringTrash = h }
+                                }
+                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
+                    }
+                    
+                    // Download progress bar
+                    if entry.isDownloading {
+                        VStack {
+                            Spacer()
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Rectangle()
+                                        .fill(Color.white.opacity(0.2))
+                                        .frame(height: 3)
+                                    
+                                    Rectangle()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color(red: 0.45, green: 0.55, blue: 1.0),
+                                                    Color(red: 0.4, green: 0.45, blue: 0.9)
+                                                ],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                        .frame(width: geo.size.width * min(entry.downloadProgress, 1.0), height: 3)
+                                        .animation(.easeInOut(duration: 0.3), value: entry.downloadProgress)
                                 }
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.black.opacity(0.7))
+                            .frame(height: 3)
                         }
-                        .transition(.opacity)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
-                .cornerRadius(8)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 12)
                         .stroke(
-                            isHoveringTrash ? Color.red.opacity(0.8) : 
-                            (isHovering ? Color.white.opacity(0.6) : Color.clear),
+                            isHoveringTrash
+                                ? Color.red.opacity(0.6)
+                                : (isHovering ? Color.white.opacity(0.4) : Color.clear),
                             lineWidth: 2
                         )
-                        .animation(.easeInOut(duration: 0.2), value: isHovering)
-                        .animation(.easeInOut(duration: 0.2), value: isHoveringTrash)
                 )
-                .overlay(
-                    // Download progress overlay
-                    entry.isDownloading ? 
-                    GeometryReader { geo in
-                        VStack {
-                            Spacer()
-                            ZStack(alignment: .leading) {
-                                Rectangle()
-                                    .fill(Color.black.opacity(0.3))
-                                    .frame(height: 3)
-                                Rectangle()
-                                    .fill(Color.accentColor)
-                                    .frame(width: geo.size.width * min(entry.downloadProgress, 1.0), height: 3)
-                                    .animation(.easeInOut(duration: 0.3), value: entry.downloadProgress)
-                            }
-                        }
-                        .padding(.bottom, 8)
-                    } : nil
+                .shadow(
+                    color: Color.black.opacity(isHovering ? 0.3 : 0.15),
+                    radius: isHovering ? 8 : 4,
+                    y: isHovering ? 4 : 2
                 )
+                .scaleEffect(isHovering ? 1.02 : 1.0)
                 .onTapGesture {
                     if !isHoveringTrash && !isEditingTitle {
                         Task {
@@ -355,7 +608,7 @@ struct VideoEntryCard: View {
             .aspectRatio(16/9, contentMode: .fit)
         }
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 isHovering = hovering
             }
         }
@@ -366,42 +619,92 @@ struct VideoEntryCard: View {
 
 struct SettingsView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
+    @State private var isHoveringFolder = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: $wallpaperManager.audioEnabled) {
-                HStack {
+        VStack(alignment: .leading, spacing: 12) {
+            // Audio Toggle
+            HStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                        .frame(width: 28, height: 28)
+                    
                     Image(systemName: wallpaperManager.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .frame(width: 16)
-                    Text("Audio")
+                        .font(.system(size: 12))
+                        .foregroundColor(wallpaperManager.audioEnabled ? Color(red: 0.45, green: 0.55, blue: 1.0) : .secondary)
                 }
-                .font(.system(size: 12))
+                
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Audio")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(wallpaperManager.audioEnabled ? "Enabled" : "Muted")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Toggle("", isOn: $wallpaperManager.audioEnabled)
+                    .toggleStyle(.switch)
+                    .scaleEffect(0.75)
             }
-            .toggleStyle(.switch)
             
             Divider()
+                .opacity(0.5)
             
+            // Open Folder Button
             Button(action: {
                 let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 let videosDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Videos", isDirectory: true)
                 NSWorkspace.shared.open(videosDirectory)
             }) {
                 HStack {
-                    Image(systemName: "folder")
-                        .frame(width: 16)
-                    Text("Open Videos Folder")
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .controlBackgroundColor).opacity(isHoveringFolder ? 0.8 : 0.5))
+                            .frame(width: 28, height: 28)
+                        
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringFolder ? Color(red: 0.45, green: 0.55, blue: 1.0) : .secondary)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Videos Folder")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Open in Finder")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.6))
                 }
-                .font(.system(size: 12))
             }
             .buttonStyle(.plain)
+            .onHover { h in
+                withAnimation(.easeOut(duration: 0.15)) { isHoveringFolder = h }
+            }
             
             Divider()
+                .opacity(0.5)
             
-            Text("v1.0.0")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+            // Version
+            HStack {
+                Text("MacLive")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("v1.0.0")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.6))
+            }
         }
-        .padding(12)
+        .padding(14)
     }
 }
 
@@ -411,60 +714,59 @@ struct ExploreView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @State private var exploreVideos: [ExploreVideo] = []
     @State private var isLoading = true
-    @State private var selectedVideoID: String? = nil
     
     let columns = [
-        GridItem(.adaptive(minimum: 130), spacing: 14)
+        GridItem(.adaptive(minimum: 140), spacing: 12)
     ]
     
     var body: some View {
         ScrollView {
             if isLoading {
-                ProgressView()
-                    .padding(.top, 100)
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Loading wallpapers...")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 80)
+            } else if exploreVideos.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 32, weight: .light))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("No wallpapers available")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 80)
             } else {
-                LazyVGrid(columns: columns, spacing: 10) {
+                LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(exploreVideos) { video in
-                        ExploreVideoCard(
-                            video: video,
-                            wallpaperManager: wallpaperManager,
-                            isSelected: selectedVideoID == video.id,
-                            onSelect: {
-                                if selectedVideoID == video.id {
-                                    selectedVideoID = nil
-                                } else {
-                                    selectedVideoID = video.id
-                                }
-                            }
-                        )
+                        ExploreVideoCard(video: video, wallpaperManager: wallpaperManager)
                     }
                 }
-                .padding(12)
+                .padding(16)
             }
         }
         .task {
             await loadExploreVideos()
-        }
-        .onTapGesture {
-            // Deselect when clicking empty space
-            selectedVideoID = nil
         }
     }
     
     private func loadExploreVideos() async {
         var jsonURL: URL?
         
-        // Try bundle first
         if let bundlePath = Bundle.main.path(forResource: "explore", ofType: "json") {
             jsonURL = URL(fileURLWithPath: bundlePath)
         } else {
-            // Try current directory
             let currentDir = FileManager.default.currentDirectoryPath
             let filePath = currentDir + "/explore.json"
             if FileManager.default.fileExists(atPath: filePath) {
                 jsonURL = URL(fileURLWithPath: filePath)
             } else {
-                // Try workspace root
                 let workspacePath = "/Users/luka/Documents/mac-live/explore.json"
                 if FileManager.default.fileExists(atPath: workspacePath) {
                     jsonURL = URL(fileURLWithPath: workspacePath)
@@ -473,32 +775,24 @@ struct ExploreView: View {
         }
         
         guard let jsonURL = jsonURL, FileManager.default.fileExists(atPath: jsonURL.path) else {
-            print("explore.json not found")
-            await MainActor.run {
-                isLoading = false
-            }
+            await MainActor.run { isLoading = false }
             return
         }
         
         do {
             let data = try Data(contentsOf: jsonURL)
-            let decoder = JSONDecoder()
-            let result = try decoder.decode(ExploreJSON.self, from: data)
+            let result = try JSONDecoder().decode(ExploreJSON.self, from: data)
             
             await MainActor.run {
                 exploreVideos = result.videos
                 isLoading = false
             }
             
-            // Load thumbnails for all videos
             for video in result.videos {
                 await loadThumbnail(for: video)
             }
         } catch {
-            print("Failed to load explore.json: \(error)")
-            await MainActor.run {
-                isLoading = false
-            }
+            await MainActor.run { isLoading = false }
         }
     }
     
@@ -517,13 +811,13 @@ struct ExploreView: View {
 struct ExploreVideoCard: View {
     let video: ExploreVideo
     @ObservedObject var wallpaperManager: VideoWallpaperManager
-    let isSelected: Bool
-    let onSelect: () -> Void
     @State private var isHovering = false
+    @State private var isHoveringAdd = false
     
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .bottomLeading) {
+            ZStack {
+                // Thumbnail
                 if let thumbnail = video.thumbnail {
                     Image(nsImage: thumbnail)
                         .resizable()
@@ -532,89 +826,106 @@ struct ExploreVideoCard: View {
                         .clipped()
                 } else {
                     Rectangle()
-                        .fill(Color.gray.opacity(0.15))
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(nsColor: .controlBackgroundColor).opacity(0.6),
+                                    Color(nsColor: .controlBackgroundColor).opacity(0.3)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
+                        .overlay(
+                            ProgressView()
+                                .scaleEffect(0.6)
+                        )
                 }
                 
-                // Darkened overlay when selected and hovering
-                Rectangle()
-                    .fill(Color.black.opacity(0.6))
-                    .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
-                    .opacity(isSelected && isHovering ? 1.0 : 0.0)
-                    .animation(.easeInOut(duration: 0.2), value: isSelected && isHovering)
+                // Gradient overlay
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0),
+                        Color.black.opacity(isHovering ? 0.85 : 0.5)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: geometry.size.width * 9/16 * 0.6)
+                .frame(maxHeight: .infinity, alignment: .bottom)
                 
-                // Title overlay - only on hover (when not selected)
+                // Content overlay
                 VStack {
                     Spacer()
-                    HStack {
+                    
+                    HStack(alignment: .bottom) {
+                        // Title
                         Text(video.title)
-                            .font(.system(size: 10))
+                            .font(.system(size: 11, weight: .medium))
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                             .foregroundColor(.white)
-                            .fixedSize(horizontal: false, vertical: true)
+                        
                         Spacer()
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.black.opacity(0.7))
-                }
-                .opacity(isHovering && !isSelected ? 1.0 : 0.0)
-                .animation(.easeInOut(duration: 0.2), value: isHovering && !isSelected)
-                
-                // Add to Library button - shown when selected and hovering
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Button(action: {
-                            Task {
-                                await wallpaperManager.addVideo(youtubeURL: video.url)
-                                onSelect() // Deselect after adding
+                        
+                        // Add button - shown on hover
+                        if isHovering {
+                            Button(action: {
+                                Task {
+                                    await wallpaperManager.addVideo(youtubeURL: video.url)
+                                }
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(
+                                        isHoveringAdd
+                                            ? LinearGradient(
+                                                colors: [
+                                                    Color(red: 0.5, green: 0.6, blue: 1.0),
+                                                    Color(red: 0.45, green: 0.5, blue: 0.95)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                            : LinearGradient(
+                                                colors: [.white, .white.opacity(0.9)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                    )
+                                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                             }
-                        }) {
-                            Text("Add to Library")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.accentColor)
-                                .cornerRadius(6)
+                            .buttonStyle(.plain)
+                            .onHover { h in
+                                withAnimation(.easeOut(duration: 0.15)) { isHoveringAdd = h }
+                            }
+                            .transition(.scale.combined(with: .opacity))
                         }
-                        .buttonStyle(.plain)
-                        Spacer()
                     }
-                    Spacer()
+                    .padding(10)
                 }
-                .opacity(isSelected && isHovering ? 1.0 : 0.0)
-                .animation(.easeInOut(duration: 0.2), value: isSelected && isHovering)
             }
             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
-            .cornerRadius(8)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        isHovering && !isSelected ? Color.white.opacity(0.6) : Color.clear,
+                        isHovering ? Color.white.opacity(0.4) : Color.clear,
                         lineWidth: 2
                     )
-                    .animation(.easeInOut(duration: 0.2), value: isHovering)
-                    .animation(.easeInOut(duration: 0.2), value: isSelected)
             )
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    onSelect()
-                }
-            }
+            .shadow(
+                color: Color.black.opacity(isHovering ? 0.3 : 0.15),
+                radius: isHovering ? 8 : 4,
+                y: isHovering ? 4 : 2
+            )
+            .scaleEffect(isHovering ? 1.02 : 1.0)
         }
         .aspectRatio(16/9, contentMode: .fit)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 isHovering = hovering
-                // Deselect when hovering stops
-                if !hovering && isSelected {
-                    onSelect()
-                }
             }
         }
     }
