@@ -156,6 +156,8 @@ struct DownloadPromptToast: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     let onDismiss: () -> Void
     @State private var isHoveringDownload = false
+    @State private var isHoveringToast = false
+    @State private var dismissTask: Task<Void, Never>?
     
     var body: some View {
         HStack(spacing: 12) {
@@ -178,6 +180,7 @@ struct DownloadPromptToast: View {
                 Task {
                     await wallpaperManager.downloadAndSetWallpaper(entry)
                 }
+                dismissTask?.cancel()
                 onDismiss()
             }) {
                 Text("Download")
@@ -201,6 +204,34 @@ struct DownloadPromptToast: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         .frame(maxWidth: 400)
+        .onHover { hovering in
+            isHoveringToast = hovering
+            if hovering {
+                // Pause dismiss timer when hovering
+                dismissTask?.cancel()
+            } else {
+                // Resume dismiss timer when not hovering
+                startDismissTimer()
+            }
+        }
+        .onAppear {
+            startDismissTimer()
+        }
+        .onDisappear {
+            dismissTask?.cancel()
+        }
+    }
+    
+    private func startDismissTimer() {
+        dismissTask?.cancel()
+        dismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 seconds
+            if !Task.isCancelled && !isHoveringToast {
+                await MainActor.run {
+                    onDismiss()
+                }
+            }
+        }
     }
 }
 
