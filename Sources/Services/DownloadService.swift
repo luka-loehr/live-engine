@@ -43,6 +43,7 @@ actor DownloadService {
     struct YTDLInfo: Decodable {
         let formats: [YTDLFormat]
         let title: String
+        let duration: Double?  // Video duration in seconds
     }
     
     enum DownloadError: LocalizedError {
@@ -131,6 +132,26 @@ actor DownloadService {
                 totalSize += (bestAudio.filesize ?? 0)
             }
             
+            // Limit to 10 minutes (600 seconds) for size calculation
+            // If we have duration, calculate proportional size for 10 minutes
+            let maxDuration: Double = 600.0  // 10 minutes in seconds
+            if let duration = info.duration, duration > maxDuration, totalSize > 0 {
+                // Calculate size for 10 minutes proportionally
+                let sizeFor10Minutes = Int64(Double(totalSize) * (maxDuration / duration))
+                totalSize = sizeFor10Minutes
+            } else if totalSize > 0 {
+                // If no duration info, estimate based on bitrates for 10 minutes
+                let videoBitrate = best.tbr ?? 0
+                let bestAudio = audioFormats.max(by: { ($0.tbr ?? 0) < ($1.tbr ?? 0) })
+                let audioBitrate = bestAudio?.tbr ?? 0
+                
+                // Size (bytes) = bitrate (kbps) * duration (sec) * 1000 / 8
+                // tbr is in kbps, so: bytes = (kbps * 1000 / 8) * seconds
+                let videoSizeEstimate = Int64((videoBitrate * 1000.0 * maxDuration) / 8.0)
+                let audioSizeEstimate = Int64((audioBitrate * 1000.0 * maxDuration) / 8.0)
+                totalSize = videoSizeEstimate + audioSizeEstimate
+            }
+            
             return (best.format_id, best.height ?? 0, best.width ?? 0, totalSize > 0 ? totalSize : nil)
         }
     }
@@ -153,9 +174,11 @@ actor DownloadService {
         
         // Use format specification that ensures proper merging
         // The format string ensures video+audio are merged into mp4
+        // Limit to first 10 minutes (600 seconds) using ffmpeg postprocessor
         process.arguments = [
             "-f", "\(formatID)+bestaudio/best",
             "--merge-output-format", "mp4",
+            "--postprocessor-args", "ffmpeg:-t 600",  // Limit to 10 minutes
             "--no-mtime",  // Don't set file modification time
             "--no-playlist",
             "--newline",
