@@ -6,7 +6,7 @@ final class DesktopWindow: NSWindow {
     override var canBecomeMain: Bool { false }
     
     private var playerView: AVPlayerView?
-    private var overlayView: NSView?
+    private var fadeOverlay: NSView?
     
     init() {
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
@@ -22,15 +22,18 @@ final class DesktopWindow: NSWindow {
     }
     
     private func configure() {
+        // Set window level to desktop window level (behind desktop icons)
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
+        
         styleMask = .borderless
-        isOpaque = true
+        isOpaque = false
         hasShadow = false
-        backgroundColor = .black
+        backgroundColor = .clear
         ignoresMouseEvents = true
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         setFrame(NSScreen.main?.frame ?? frame, display: true)
         
+        // Create player view
         let view = AVPlayerView()
         view.controlsStyle = .none
         view.videoGravity = .resizeAspectFill
@@ -41,16 +44,20 @@ final class DesktopWindow: NSWindow {
         contentView?.addSubview(view)
         playerView = view
         
+        // Create fade overlay for smooth transitions
         let overlay = NSView(frame: contentView?.bounds ?? .zero)
         overlay.wantsLayer = true
         overlay.layer?.backgroundColor = NSColor.black.cgColor
-        overlay.alphaValue = 0
+        overlay.alphaValue = 0.0
         overlay.autoresizingMask = [.width, .height]
         contentView?.addSubview(overlay)
-        overlayView = overlay
+        fadeOverlay = overlay
         
+        // Make window visible and order it back
         orderBack(nil)
+        isReleasedWhenClosed = false
         
+        // Handle screen changes
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenDidChange),
@@ -65,21 +72,28 @@ final class DesktopWindow: NSWindow {
         }
     }
     
-    func setPlayer(_ player: AVPlayer?, animated: Bool = false) {
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.5
-                overlayView?.animator().alphaValue = 1.0
-            } completionHandler: { [weak self] in
+    func setPlayer(_ player: AVPlayer?, animated: Bool = true) {
+        if animated && playerView?.player != nil && player != nil {
+            // Fade transition: fade out old, switch player, fade in new
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.3
+                fadeOverlay?.animator().alphaValue = 1.0
+            }) { [weak self] in
                 self?.playerView?.player = player
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.5
-                    self?.overlayView?.animator().alphaValue = 0.0
-                }
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    self?.fadeOverlay?.animator().alphaValue = 0.0
+                })
             }
         } else {
+            // Instant switch
             playerView?.player = player
-            overlayView?.alphaValue = 0.0
+            fadeOverlay?.alphaValue = 0.0
+        }
+        
+        if player != nil {
+            // Ensure window stays visible
+            orderBack(nil)
         }
     }
     
@@ -87,4 +101,3 @@ final class DesktopWindow: NSWindow {
         NotificationCenter.default.removeObserver(self)
     }
 }
-

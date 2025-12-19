@@ -22,6 +22,9 @@ struct VideoEntry: Identifiable, Equatable {
     let id: String
     var name: String
     var thumbnail: NSImage?
+    var videoURL: URL?
+    var isDownloading: Bool = false
+    var downloadProgress: Double = 0.0
     
     static func == (lhs: VideoEntry, rhs: VideoEntry) -> Bool {
         lhs.id == rhs.id
