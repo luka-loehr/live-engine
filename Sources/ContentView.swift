@@ -5,6 +5,8 @@ struct ContentView: View {
     @State private var showingURLInput = false
     @State private var showingSettings = false
     @State private var selectedTab: TabSelection = .myWallpaper
+    @State private var showToast = false
+    @State private var toastMessage = ""
     
     enum TabSelection: CaseIterable {
         case myWallpaper
@@ -26,51 +28,93 @@ struct ContentView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with glass material
-            HStack(spacing: 12) {
-                SegmentedTabBar(selectedTab: $selectedTab)
-                
-                Spacer()
-                
-                HStack(spacing: 4) {
-                    IconButton(icon: "gearshape.fill", size: 12) {
-                        showingSettings.toggle()
-                    }
-                    .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
-                        SettingsView(wallpaperManager: wallpaperManager)
-                            .frame(width: 200)
-                    }
+        ZStack {
+            VStack(spacing: 0) {
+                // Header with glass material
+                HStack(spacing: 12) {
+                    SegmentedTabBar(selectedTab: $selectedTab)
                     
-                    IconButton(icon: "xmark", size: 10, weight: .semibold) {
-                        NSApplication.shared.terminate(nil)
-                    }
+                    Spacer()
+                    
+                IconButton(icon: "gearshape.fill", size: 12) {
+                    showingSettings.toggle()
                 }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.ultraThinMaterial)
-            
-            // Content Area
-            ZStack {
-                if showingURLInput {
-                    URLInputView(wallpaperManager: wallpaperManager, isPresented: $showingURLInput)
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                } else {
-                    if selectedTab == .myWallpaper {
-                        LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
-                            .transition(.opacity)
+                .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
+                    SettingsView(wallpaperManager: wallpaperManager)
+                        .frame(width: 200)
+                }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial)
+                
+                // Content Area
+                ZStack {
+                    if showingURLInput {
+                        URLInputView(wallpaperManager: wallpaperManager, isPresented: $showingURLInput, onAdded: { showToastMessage("Added to Library") })
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else {
-                        ExploreView(wallpaperManager: wallpaperManager)
-                            .transition(.opacity)
+                        if selectedTab == .myWallpaper {
+                            LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
+                                .transition(.opacity)
+                        } else {
+                            ExploreView(wallpaperManager: wallpaperManager, onAdded: { showToastMessage("Added to Library") })
+                                .transition(.opacity)
+                        }
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: selectedTab)
+                .animation(.easeInOut(duration: 0.2), value: showingURLInput)
             }
-            .animation(.easeInOut(duration: 0.2), value: selectedTab)
-            .animation(.easeInOut(duration: 0.2), value: showingURLInput)
+            
+            // Toast overlay
+            if showToast {
+                VStack {
+                    Spacer()
+                    ToastView(message: toastMessage)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(.bottom, 16)
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showToast)
+            }
         }
         .background(.thinMaterial)
         .frame(width: 460, height: 380)
+    }
+    
+    private func showToastMessage(_ message: String) {
+        toastMessage = message
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            showToast = true
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                showToast = false
+            }
+        }
+    }
+}
+
+// MARK: - Toast View
+
+struct ToastView: View {
+    let message: String
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundColor(.green)
+            
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
     }
 }
 
@@ -171,6 +215,7 @@ struct IconButton: View {
 struct URLInputView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @Binding var isPresented: Bool
+    var onAdded: () -> Void = {}
     @State private var urlInput: String = ""
     @FocusState private var isInputFocused: Bool
     
@@ -257,6 +302,7 @@ struct URLInputView: View {
         Task {
             await wallpaperManager.addVideo(youtubeURL: urlInput)
             isPresented = false
+            onAdded()
         }
     }
 }
@@ -466,6 +512,7 @@ struct VideoEntryCard: View {
 struct SettingsView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @State private var isHoveringFolder = false
+    @State private var isHoveringQuit = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -525,6 +572,31 @@ struct SettingsView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.secondary.opacity(0.6))
             }
+            
+            Divider()
+            
+            // Quit Button
+            Button(action: {
+                NSApplication.shared.terminate(nil)
+            }) {
+                HStack {
+                    Image(systemName: "power")
+                        .font(.system(size: 12))
+                        .foregroundColor(isHoveringQuit ? .red : .secondary)
+                        .frame(width: 20)
+                    
+                    Text("Quit MacLive")
+                        .font(.system(size: 12))
+                        .foregroundColor(isHoveringQuit ? .red : .primary)
+                    
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { h in
+                withAnimation(.easeOut(duration: 0.15)) { isHoveringQuit = h }
+            }
         }
         .padding(12)
     }
@@ -534,8 +606,10 @@ struct SettingsView: View {
 
 struct ExploreView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
+    var onAdded: () -> Void = {}
     @State private var exploreVideos: [ExploreVideo] = []
     @State private var isLoading = true
+    @State private var justAddedID: String? = nil
     
     let columns = [
         GridItem(.adaptive(minimum: 140), spacing: 12)
@@ -567,7 +641,24 @@ struct ExploreView: View {
             } else {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(exploreVideos) { video in
-                        ExploreVideoCard(video: video, wallpaperManager: wallpaperManager)
+                        ExploreVideoCard(
+                            video: video,
+                            wallpaperManager: wallpaperManager,
+                            justAdded: justAddedID == video.id,
+                            onAdded: {
+                                // Flash green border (same duration as toast: 2s)
+                                // Set justAddedID immediately to trigger smooth fade-in animation
+                                withAnimation(.easeOut(duration: 0.3)) {
+                                    justAddedID = video.id
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    withAnimation(.easeOut(duration: 0.3)) {
+                                        justAddedID = nil
+                                    }
+                                }
+                                onAdded()
+                            }
+                        )
                     }
                 }
                 .padding(16)
@@ -633,8 +724,14 @@ struct ExploreView: View {
 struct ExploreVideoCard: View {
     let video: ExploreVideo
     @ObservedObject var wallpaperManager: VideoWallpaperManager
+    var justAdded: Bool = false
+    var onAdded: () -> Void = {}
     @State private var isHovering = false
     @State private var isHoveringAdd = false
+    
+    private var isInLibrary: Bool {
+        wallpaperManager.isInLibrary(videoID: video.id)
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -672,31 +769,31 @@ struct ExploreVideoCard: View {
                         HStack {
                             Spacer()
                             Button(action: {
+                                guard !justAdded && !isInLibrary else { return }
+                                // Set justAdded immediately to trigger animation BEFORE adding to library
+                                onAdded()
                                 Task {
                                     await wallpaperManager.addVideo(youtubeURL: video.url)
                                 }
                             }) {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(
-                                        isHoveringAdd
-                                            ? LinearGradient(
-                                                colors: [
-                                                    Color(red: 0.5, green: 0.6, blue: 1.0),
-                                                    Color(red: 0.45, green: 0.5, blue: 0.95)
-                                                ],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                            : LinearGradient(
-                                                colors: [.white, .white.opacity(0.9)],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                    )
-                                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                                ZStack {
+                                    // Plus icon
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundColor(isHoveringAdd ? Color(red: 0.5, green: 0.6, blue: 1.0) : .white)
+                                        .opacity((justAdded || isInLibrary) ? 0 : 1)
+                                    
+                                    // Checkmark icon - simple fade in
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundColor(.green)
+                                        .opacity((justAdded || isInLibrary) ? 1.0 : 0.0)
+                                }
+                                .shadow(color: (justAdded || isInLibrary) ? .green.opacity(0.5) : .black.opacity(0.3), radius: 2, y: 1)
+                                .scaleEffect((justAdded || isInLibrary) ? 1.1 : 1.0)
                             }
                             .buttonStyle(.plain)
+                            .disabled(justAdded || isInLibrary)
                             .onHover { h in
                                 withAnimation(.easeOut(duration: 0.15)) { isHoveringAdd = h }
                             }
@@ -711,11 +808,17 @@ struct ExploreVideoCard: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        isHovering ? Color.white.opacity(0.4) : Color.clear,
-                        lineWidth: 2
+                        ((justAdded || isInLibrary) && isHovering)
+                            ? Color.green
+                            : (isHovering ? Color.white.opacity(0.4) : Color.clear),
+                        lineWidth: ((justAdded || isInLibrary) && isHovering) ? 2.5 : 2
                     )
             )
-            .shadow(color: Color.black.opacity(0.15), radius: 4, y: 2)
+            .shadow(
+                color: ((justAdded || isInLibrary) && isHovering) ? Color.green.opacity(0.4) : Color.black.opacity(0.15),
+                radius: ((justAdded || isInLibrary) && isHovering) ? 8 : 4,
+                y: ((justAdded || isInLibrary) && isHovering) ? 0 : 2
+            )
             .scaleEffect(isHovering ? 1.02 : 1.0)
         }
         .aspectRatio(16/9, contentMode: .fit)
