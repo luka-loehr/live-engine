@@ -255,6 +255,136 @@ class VideoWallpaperManager: ObservableObject {
     
     // MARK: - Download & Playback
     
+    func downloadVideo(entry: VideoEntry) async {
+        // Check database for existing video file first
+        let existingFiles = db.getVideoFiles(videoId: entry.id, includeTemporary: false)
+        if let videoFile = existingFiles.first(where: { $0.fileType == "video" }),
+           FileManager.default.fileExists(atPath: videoFile.filePath) {
+            // Already downloaded, update status
+            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
+                videoEntries[index].isDownloaded = true
+                videoEntries[index].videoURL = URL(fileURLWithPath: videoFile.filePath)
+            }
+            db.updateLibraryEntry(id: entry.id, isDownloaded: true)
+            return
+        }
+        
+        // Otherwise, download first
+        let youtubeURL = "https://www.youtube.com/watch?v=\(entry.id)"
+        
+        // Update entry to show downloading state
+        if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
+            videoEntries[index].isDownloading = true
+            videoEntries[index].downloadProgress = 0.0
+        }
+        
+        // Track expected output file as temporary before download starts
+        let (formatID, height, _): (String, Int, Int)
+        do {
+            (formatID, height, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
+        } catch {
+            print("Failed to fetch format: \(error)")
+            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
+                videoEntries[index].isDownloading = false
+                videoEntries[index].downloadProgress = 0.0
+            }
+            return
+        }
+        let outputPath = videosDirectory.appendingPathComponent("\(entry.id)_\(height)p.mp4")
+        
+        // Track the expected output file as temporary
+        db.addVideoFile(
+            videoId: entry.id,
+            filePath: outputPath.path,
+            fileType: "video",
+            fileSize: 0,
+            isTemporary: true
+        )
+        
+        do {
+            // Get initial files in directory to track temporary files created during download
+            let initialFiles = (try? FileManager.default.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)) ?? []
+            
+            let finalPath = try await DownloadService.shared.downloadVideo(
+                url: youtubeURL,
+                formatID: formatID,
+                outputURL: outputPath
+            ) { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    if let index = self?.videoEntries.firstIndex(where: { $0.id == entry.id }) {
+                        self?.videoEntries[index].downloadProgress = progress
+                    }
+                }
+            }
+            
+            // Get files after download to find temporary files
+            let finalFiles = (try? FileManager.default.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)) ?? []
+            let newFiles = finalFiles.filter { file in
+                !initialFiles.contains(file) && 
+                (file.lastPathComponent.contains(entry.id) || file.pathExtension == "webm" || file.pathExtension == "part")
+            }
+            
+            // Track any temporary files that were created
+            for tempFile in newFiles {
+                if tempFile.path != finalPath.path {
+                    let fileSize = (try? tempFile.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                    let fileType = tempFile.pathExtension == "webm" ? "video_temp" : "audio_temp"
+                    db.addVideoFile(
+                        videoId: entry.id,
+                        filePath: tempFile.path,
+                        fileType: fileType,
+                        fileSize: Int64(fileSize),
+                        isTemporary: true
+                    )
+                }
+            }
+            
+            // Verify final file exists and get its size
+            guard FileManager.default.fileExists(atPath: finalPath.path) else {
+                throw NSError(domain: "DownloadError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Final video file not found"])
+            }
+            
+            let fileSize = (try? finalPath.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            
+            // Mark final file as permanent (this will replace the temporary entry)
+            db.addVideoFile(
+                videoId: entry.id,
+                filePath: finalPath.path,
+                fileType: "video",
+                fileSize: Int64(fileSize),
+                isTemporary: false
+            )
+            
+            // Clean up temporary files from disk and database
+            db.deleteTemporaryFiles(videoId: entry.id)
+            
+            // Update entry with video URL and download status
+            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
+                videoEntries[index].videoURL = finalPath
+                videoEntries[index].isDownloaded = true
+                videoEntries[index].isDownloading = false
+                videoEntries[index].downloadProgress = 1.0
+            }
+            
+            // Update database
+            db.updateLibraryEntry(id: entry.id, isDownloaded: true, lastPlayedAt: Date())
+            
+            // Return without auto-playing - let user decide
+            return
+            
+        } catch {
+            print("Download error: \(error)")
+            
+            // Clean up any temporary files on error
+            db.deleteTemporaryFiles(videoId: entry.id)
+            
+            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
+                videoEntries[index].isDownloading = false
+                videoEntries[index].downloadProgress = 0.0
+            }
+        }
+    }
+    
     func downloadAndSetWallpaper(_ entry: VideoEntry) async {
         // Check database for existing video file first
         let existingFiles = db.getVideoFiles(videoId: entry.id, includeTemporary: false)
@@ -368,8 +498,8 @@ class VideoWallpaperManager: ObservableObject {
             // Update database
             db.updateLibraryEntry(id: entry.id, isDownloaded: true, lastPlayedAt: Date())
             
-            // Auto-play after download
-            await playVideo(at: finalPath, entryID: entry.id)
+            // Return without auto-playing - let user decide
+            return
             
         } catch {
             print("Download error: \(error)")

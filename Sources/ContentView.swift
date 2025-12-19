@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var toastMessage = ""
     @State private var showDownloadPrompt = false
     @State private var pendingDownloadEntry: VideoEntry?
+    @State private var showSetWallpaperPrompt = false
+    @State private var downloadedEntry: VideoEntry?
     
     enum TabSelection: CaseIterable {
         case myWallpaper
@@ -62,6 +64,9 @@ struct ContentView: View {
                                 showingURLInput: $showingURLInput,
                                 onShowDownloadPrompt: { entry in
                                     showDownloadPrompt(for: entry)
+                                },
+                                onDownloadComplete: { entry in
+                                    showSetWallpaperPrompt(for: entry)
                                 }
                             )
                             .transition(.opacity)
@@ -90,7 +95,20 @@ struct ContentView: View {
             if showDownloadPrompt, let entry = pendingDownloadEntry {
                 VStack {
                     Spacer()
-                    DownloadPromptToast(entry: entry, wallpaperManager: wallpaperManager) {
+                    DownloadPromptToast(
+                        entry: entry,
+                        wallpaperManager: wallpaperManager,
+                        onDownloadStarted: {
+                            showToastMessage("Download started")
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showDownloadPrompt = false
+                                pendingDownloadEntry = nil
+                            }
+                        },
+                        onDownloadComplete: { downloadedEntry in
+                            showSetWallpaperPrompt(for: downloadedEntry)
+                        }
+                    ) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             showDownloadPrompt = false
                             pendingDownloadEntry = nil
@@ -100,6 +118,25 @@ struct ContentView: View {
                     .padding(.bottom, 16)
                 }
                 .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showDownloadPrompt)
+            }
+            
+            // Set wallpaper prompt toast (after download completes)
+            if showSetWallpaperPrompt, let entry = downloadedEntry {
+                VStack {
+                    Spacer()
+                    SetWallpaperPromptToast(
+                        entry: entry,
+                        wallpaperManager: wallpaperManager
+                    ) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showSetWallpaperPrompt = false
+                            downloadedEntry = nil
+                        }
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 16)
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showSetWallpaperPrompt)
             }
         }
         .background(.thinMaterial)
@@ -123,6 +160,13 @@ struct ContentView: View {
         pendingDownloadEntry = entry
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             showDownloadPrompt = true
+        }
+    }
+    
+    func showSetWallpaperPrompt(for entry: VideoEntry) {
+        downloadedEntry = entry
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            showSetWallpaperPrompt = true
         }
     }
 }
@@ -154,6 +198,8 @@ struct ToastView: View {
 struct DownloadPromptToast: View {
     let entry: VideoEntry
     @ObservedObject var wallpaperManager: VideoWallpaperManager
+    let onDownloadStarted: () -> Void
+    let onDownloadComplete: (VideoEntry) -> Void
     let onDismiss: () -> Void
     @State private var isHoveringDownload = false
     @State private var isHoveringToast = false
@@ -177,11 +223,26 @@ struct DownloadPromptToast: View {
             Spacer()
             
             Button(action: {
-                Task {
-                    await wallpaperManager.downloadAndSetWallpaper(entry)
-                }
                 dismissTask?.cancel()
-                onDismiss()
+                onDownloadStarted()
+                Task {
+                    await wallpaperManager.downloadVideo(entry: entry)
+                    // Wait a bit for the download to complete and update the entry
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                    // Find the updated entry and notify completion
+                    // Poll for download completion
+                    var attempts = 0
+                    while attempts < 20 {
+                        if let updatedEntry = wallpaperManager.videoEntries.first(where: { $0.id == entry.id && $0.isDownloaded && !$0.isDownloading }) {
+                            await MainActor.run {
+                                onDownloadComplete(updatedEntry)
+                            }
+                            break
+                        }
+                        try? await Task.sleep(nanoseconds: 250_000_000) // 0.25 seconds
+                        attempts += 1
+                    }
+                }
             }) {
                 Text("Download")
                     .font(.system(size: 11, weight: .semibold))
@@ -195,6 +256,92 @@ struct DownloadPromptToast: View {
             .onHover { h in
                 withAnimation(.easeOut(duration: 0.15)) {
                     isHoveringDownload = h
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .frame(maxWidth: 400)
+        .onHover { hovering in
+            isHoveringToast = hovering
+            if hovering {
+                // Pause dismiss timer when hovering
+                dismissTask?.cancel()
+            } else {
+                // Resume dismiss timer when not hovering
+                startDismissTimer()
+            }
+        }
+        .onAppear {
+            startDismissTimer()
+        }
+        .onDisappear {
+            dismissTask?.cancel()
+        }
+    }
+    
+    private func startDismissTimer() {
+        dismissTask?.cancel()
+        dismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 seconds
+            if !Task.isCancelled && !isHoveringToast {
+                await MainActor.run {
+                    onDismiss()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Set Wallpaper Prompt Toast
+
+struct SetWallpaperPromptToast: View {
+    let entry: VideoEntry
+    @ObservedObject var wallpaperManager: VideoWallpaperManager
+    let onDismiss: () -> Void
+    @State private var isHoveringSet = false
+    @State private var isHoveringToast = false
+    @State private var dismissTask: Task<Void, Never>?
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.green)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Download Complete")
+                    .font(.system(size: 12, weight: .semibold))
+                
+                Text("Would you like to set this as your wallpaper?")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Button(action: {
+                dismissTask?.cancel()
+                Task {
+                    await wallpaperManager.downloadAndSetWallpaper(entry)
+                }
+                onDismiss()
+            }) {
+                Text("Set")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(isHoveringSet ? .white : .green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(isHoveringSet ? Color.green : Color.green.opacity(0.15))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .onHover { h in
+                withAnimation(.easeOut(duration: 0.15)) {
+                    isHoveringSet = h
                 }
             }
         }
@@ -430,6 +577,7 @@ struct LibraryView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @Binding var showingURLInput: Bool
     var onShowDownloadPrompt: (VideoEntry) -> Void
+    var onDownloadComplete: (VideoEntry) -> Void
     
     let columns = [
         GridItem(.adaptive(minimum: 140), spacing: 12)
@@ -444,7 +592,8 @@ struct LibraryView: View {
                     VideoEntryCard(
                         entry: entry,
                         wallpaperManager: wallpaperManager,
-                        onShowDownloadPrompt: onShowDownloadPrompt
+                        onShowDownloadPrompt: onShowDownloadPrompt,
+                        onDownloadComplete: onDownloadComplete
                     )
                     .transition(.asymmetric(
                         insertion: .scale.combined(with: .opacity),
@@ -511,6 +660,7 @@ struct VideoEntryCard: View {
     let entry: VideoEntry
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     var onShowDownloadPrompt: (VideoEntry) -> Void
+    var onDownloadComplete: (VideoEntry) -> Void
     @State private var isHovering = false
     @State private var isHoveringTrash = false
     
