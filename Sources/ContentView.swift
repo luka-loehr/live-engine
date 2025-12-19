@@ -278,9 +278,14 @@ struct LibraryView: View {
                 
                 ForEach(wallpaperManager.videoEntries) { entry in
                     VideoEntryCard(entry: entry, wallpaperManager: wallpaperManager)
+                        .transition(.asymmetric(
+                            insertion: .scale.combined(with: .opacity),
+                            removal: .scale(scale: 0.8).combined(with: .opacity)
+                        ))
                 }
             }
             .padding(16)
+            .animation(.spring(response: 0.2, dampingFraction: 0.75), value: wallpaperManager.videoEntries.map { $0.id })
         }
     }
 }

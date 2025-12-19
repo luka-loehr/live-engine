@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import AVFoundation
+import SwiftUI
 
 @MainActor
 class VideoWallpaperManager: ObservableObject {
@@ -192,7 +193,9 @@ class VideoWallpaperManager: ObservableObject {
         try? FileManager.default.removeItem(at: thumbPath)
         try? FileManager.default.removeItem(at: titlePath)
         
-        videoEntries.removeAll { $0.id == entry.id }
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.75)) {
+            videoEntries.removeAll { $0.id == entry.id }
+        }
     }
     
     // MARK: - Download & Playback
