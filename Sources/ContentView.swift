@@ -26,63 +26,50 @@ struct ContentView: View {
     }
     
     var body: some View {
-        ZStack {
-            // Subtle gradient background
-            LinearGradient(
-                colors: [
-                    Color(nsColor: NSColor.windowBackgroundColor),
-                    Color(nsColor: NSColor.windowBackgroundColor).opacity(0.95)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // Compact Header
-                HStack(spacing: 12) {
-                    // Tab Switcher
-                    SegmentedTabBar(selectedTab: $selectedTab)
-                    
-                    Spacer()
-                    
-                    // Action Buttons
-                    HStack(spacing: 4) {
-                        IconButton(icon: "gearshape.fill", size: 12) {
-                            showingSettings.toggle()
-                        }
-                        .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
-                            SettingsView(wallpaperManager: wallpaperManager)
-                                .frame(width: 200)
-                        }
-                        
-                        IconButton(icon: "xmark", size: 10, weight: .semibold) {
-                            NSApplication.shared.terminate(nil)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+        VStack(spacing: 0) {
+            // Header with glass material
+            HStack(spacing: 12) {
+                SegmentedTabBar(selectedTab: $selectedTab)
                 
-                // Content Area
-                ZStack {
-                    if showingURLInput {
-                        URLInputView(wallpaperManager: wallpaperManager, isPresented: $showingURLInput)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    } else {
-                        if selectedTab == .myWallpaper {
-                            LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
-                                .transition(.opacity)
-                        } else {
-                            ExploreView(wallpaperManager: wallpaperManager)
-                                .transition(.opacity)
-                        }
+                Spacer()
+                
+                HStack(spacing: 4) {
+                    IconButton(icon: "gearshape.fill", size: 12) {
+                        showingSettings.toggle()
+                    }
+                    .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
+                        SettingsView(wallpaperManager: wallpaperManager)
+                            .frame(width: 200)
+                    }
+                    
+                    IconButton(icon: "xmark", size: 10, weight: .semibold) {
+                        NSApplication.shared.terminate(nil)
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: selectedTab)
-                .animation(.easeInOut(duration: 0.2), value: showingURLInput)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+            
+            // Content Area
+            ZStack {
+                if showingURLInput {
+                    URLInputView(wallpaperManager: wallpaperManager, isPresented: $showingURLInput)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    if selectedTab == .myWallpaper {
+                        LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
+                            .transition(.opacity)
+                    } else {
+                        ExploreView(wallpaperManager: wallpaperManager)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: selectedTab)
+            .animation(.easeInOut(duration: 0.2), value: showingURLInput)
         }
+        .background(.thinMaterial)
         .frame(width: 460, height: 380)
     }
 }
@@ -108,10 +95,8 @@ struct SegmentedTabBar: View {
             }
         }
         .padding(3)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        )
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -169,10 +154,8 @@ struct IconButton: View {
                 .font(.system(size: size, weight: weight))
                 .foregroundColor(isHovering ? .primary : .secondary)
                 .frame(width: 26, height: 26)
-                .background(
-                    Circle()
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.8 : 0.4))
-                )
+                .background(isHovering ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.clear))
+                .clipShape(Circle())
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -190,124 +173,76 @@ struct URLInputView: View {
     @Binding var isPresented: Bool
     @State private var urlInput: String = ""
     @FocusState private var isInputFocused: Bool
-    @State private var isHoveringCancel = false
     
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
             
-            VStack(spacing: 24) {
-                // Icon
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.4, green: 0.5, blue: 0.95).opacity(0.2),
-                                    Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.1)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 56, height: 56)
-                    
-                    Image(systemName: "link.badge.plus")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.45, green: 0.55, blue: 1.0),
-                                    Color(red: 0.4, green: 0.45, blue: 0.9)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
+            VStack(spacing: 20) {
+                Image(systemName: "link.badge.plus")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(.secondary)
                 
-                VStack(spacing: 6) {
+                VStack(spacing: 4) {
                     Text("Add Wallpaper")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Paste a YouTube link to add it to your library")
+                        .font(.system(size: 15, weight: .medium))
+                    Text("Paste a YouTube link")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 
-                VStack(spacing: 14) {
-                    HStack(spacing: 0) {
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         Image(systemName: "link")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
-                            .frame(width: 36)
                         
                         TextField("youtube.com/watch?v=...", text: $urlInput)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 13))
+                            .font(.system(size: 12))
                             .focused($isInputFocused)
                             .onSubmit(startDownload)
                         
                         if !urlInput.isEmpty {
                             Button(action: { urlInput = "" }) {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary.opacity(0.6))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary.opacity(0.5))
                             }
                             .buttonStyle(.plain)
-                            .padding(.trailing, 10)
                         }
                     }
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                            )
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
                     )
                     
-                    HStack(spacing: 10) {
-                        Button(action: { isPresented = false }) {
-                            Text("Cancel")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(isHoveringCancel ? .primary : .secondary)
-                                .frame(width: 80, height: 32)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color(nsColor: .controlBackgroundColor).opacity(isHoveringCancel ? 0.8 : 0.5))
-                                )
+                    HStack(spacing: 8) {
+                        Button("Cancel") {
+                            isPresented = false
                         }
                         .buttonStyle(.plain)
-                        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { isHoveringCancel = h } }
+                        .foregroundColor(.secondary)
+                        .frame(width: 70, height: 28)
+                        .background(.regularMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
                         
                         Button(action: startDownload) {
-                            Text("Add to Library")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 32)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(
-                                                    LinearGradient(
-                                                        colors: urlInput.isEmpty
-                                                            ? [Color.gray.opacity(0.3), Color.gray.opacity(0.25)]
-                                                            : [Color(red: 0.4, green: 0.5, blue: 0.95), Color(red: 0.35, green: 0.4, blue: 0.85)],
-                                                        startPoint: .topLeading,
-                                                        endPoint: .bottomTrailing
-                                                    )
-                                                )
-                                                .shadow(color: urlInput.isEmpty ? .clear : Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.3), radius: 4, y: 2)
-                                        )
+                            Text("Add")
+                                .fontWeight(.medium)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                         .disabled(urlInput.isEmpty)
                     }
                 }
-                .frame(width: 280)
+                .frame(width: 260)
             }
-            .padding(.horizontal, 32)
+            .padding(24)
             
             Spacer()
         }
@@ -360,74 +295,24 @@ struct AddWallpaperCard: View {
         GeometryReader { geometry in
             Button(action: { showingURLInput = true }) {
                 ZStack {
-                    // Background with gradient
+                    // Glass background
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.9 : 0.5),
-                                    Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.7 : 0.3)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(isHovering ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.ultraThinMaterial))
                     
-                    // Border glow on hover
+                    // Subtle border
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(
-                            LinearGradient(
-                                colors: isHovering ? [
-                                    Color(red: 0.45, green: 0.55, blue: 1.0).opacity(0.6),
-                                    Color(red: 0.4, green: 0.45, blue: 0.9).opacity(0.3)
-                                ] : [
-                                    Color.primary.opacity(0.1),
-                                    Color.primary.opacity(0.05)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
+                            isHovering
+                                ? Color.primary.opacity(0.2)
+                                : Color.primary.opacity(0.08),
+                            lineWidth: 1
                         )
                     
                     // Content
                     VStack(spacing: 8) {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: isHovering ? [
-                                            Color(red: 0.4, green: 0.5, blue: 0.95).opacity(0.3),
-                                            Color(red: 0.35, green: 0.4, blue: 0.85).opacity(0.15)
-                                        ] : [
-                                            Color.primary.opacity(0.08),
-                                            Color.primary.opacity(0.04)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 36, height: 36)
-                            
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(
-                                    isHovering
-                                        ? LinearGradient(
-                                            colors: [
-                                                Color(red: 0.5, green: 0.6, blue: 1.0),
-                                                Color(red: 0.45, green: 0.5, blue: 0.95)
-                                            ],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                        : LinearGradient(
-                                            colors: [Color.secondary, Color.secondary],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                )
-                        }
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .light))
+                            .foregroundColor(isHovering ? .primary : .secondary)
                         
                         Text("Add New")
                             .font(.system(size: 11, weight: .medium))
@@ -440,7 +325,7 @@ struct AddWallpaperCard: View {
         }
         .aspectRatio(16/9, contentMode: .fit)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            withAnimation(.easeOut(duration: 0.2)) {
                 isHovering = hovering
             }
         }
@@ -551,11 +436,7 @@ struct VideoEntryCard: View {
                             lineWidth: 2
                         )
                 )
-                .shadow(
-                    color: Color.black.opacity(isHovering ? 0.3 : 0.15),
-                    radius: isHovering ? 8 : 4,
-                    y: isHovering ? 4 : 2
-                )
+                .shadow(color: Color.black.opacity(0.15), radius: 4, y: 2)
                 .scaleEffect(isHovering ? 1.02 : 1.0)
                 .onTapGesture {
                     if !isHoveringTrash {
@@ -582,36 +463,25 @@ struct SettingsView: View {
     @State private var isHoveringFolder = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             // Audio Toggle
             HStack {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-                        .frame(width: 28, height: 28)
-                    
-                    Image(systemName: wallpaperManager.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(wallpaperManager.audioEnabled ? Color(red: 0.45, green: 0.55, blue: 1.0) : .secondary)
-                }
+                Image(systemName: wallpaperManager.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(wallpaperManager.audioEnabled ? .accentColor : .secondary)
+                    .frame(width: 20)
                 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Audio")
-                        .font(.system(size: 12, weight: .medium))
-                    Text(wallpaperManager.audioEnabled ? "Enabled" : "Muted")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
+                Text("Audio")
+                    .font(.system(size: 12))
                 
                 Spacer()
                 
                 Toggle("", isOn: $wallpaperManager.audioEnabled)
                     .toggleStyle(.switch)
-                    .scaleEffect(0.75)
+                    .scaleEffect(0.7)
             }
             
             Divider()
-                .opacity(0.5)
             
             // Open Folder Button
             Button(action: {
@@ -620,43 +490,30 @@ struct SettingsView: View {
                 NSWorkspace.shared.open(videosDirectory)
             }) {
                 HStack {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(isHoveringFolder ? 0.8 : 0.5))
-                            .frame(width: 28, height: 28)
-                        
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(isHoveringFolder ? Color(red: 0.45, green: 0.55, blue: 1.0) : .secondary)
-                    }
+                    Image(systemName: "folder")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(width: 20)
                     
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Videos Folder")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("Open in Finder")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
+                    Text("Open Videos Folder")
+                        .font(.system(size: 12))
                     
                     Spacer()
                     
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .medium))
+                    Image(systemName: "arrow.up.forward")
+                        .font(.system(size: 10))
                         .foregroundColor(.secondary.opacity(0.6))
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .onHover { h in
-                withAnimation(.easeOut(duration: 0.15)) { isHoveringFolder = h }
-            }
             
             Divider()
-                .opacity(0.5)
             
             // Version
             HStack {
                 Text("MacLive")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Spacer()
                 Text("v1.0.0")
@@ -664,7 +521,7 @@ struct SettingsView: View {
                     .foregroundColor(.secondary.opacity(0.6))
             }
         }
-        .padding(14)
+        .padding(12)
     }
 }
 
@@ -853,16 +710,12 @@ struct ExploreVideoCard: View {
                         lineWidth: 2
                     )
             )
-            .shadow(
-                color: Color.black.opacity(isHovering ? 0.3 : 0.15),
-                radius: isHovering ? 8 : 4,
-                y: isHovering ? 4 : 2
-            )
+            .shadow(color: Color.black.opacity(0.15), radius: 4, y: 2)
             .scaleEffect(isHovering ? 1.02 : 1.0)
         }
         .aspectRatio(16/9, contentMode: .fit)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            withAnimation(.easeOut(duration: 0.2)) {
                 isHovering = hovering
             }
         }
