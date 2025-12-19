@@ -12,6 +12,7 @@ actor DownloadService {
         let height: Int?
         let tbr: Double?
         let fps: Double?
+        let filesize: Int64?
         
         var isVideo: Bool {
             return vcodec != "none" && width != nil
@@ -66,7 +67,7 @@ actor DownloadService {
         return nil
     }
     
-    func fetchBestFormat(url: String) async throws -> (id: String, height: Int, width: Int) {
+    func fetchBestFormat(url: String) async throws -> (id: String, height: Int, width: Int, size: Int64?) {
         guard let ytdlp = findYtDlp() else { throw DownloadError.ytdlpNotFound }
         
         let process = Process()
@@ -99,7 +100,16 @@ actor DownloadService {
             throw DownloadError.parsingFailed
         }
         
-        return (best.format_id, best.height ?? 0, best.width ?? 0)
+        // Calculate total size: video format + best audio format
+        var totalSize = best.filesize ?? 0
+        
+        // Find best audio format
+        let audioFormats = info.formats.filter { $0.vcodec == "none" }
+        if let bestAudio = audioFormats.max(by: { ($0.tbr ?? 0) < ($1.tbr ?? 0) }) {
+            totalSize += (bestAudio.filesize ?? 0)
+        }
+        
+        return (best.format_id, best.height ?? 0, best.width ?? 0, totalSize > 0 ? totalSize : nil)
     }
     
     func downloadVideo(

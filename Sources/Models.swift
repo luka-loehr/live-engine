@@ -26,6 +26,7 @@ struct VideoEntry: Identifiable, Equatable {
     var isDownloaded: Bool = false
     var isDownloading: Bool = false
     var downloadProgress: Double = 0.0
+    var downloadSize: Int64? = nil  // Size in bytes for max resolution
     
     static func == (lhs: VideoEntry, rhs: VideoEntry) -> Bool {
         lhs.id == rhs.id

@@ -215,9 +215,15 @@ struct DownloadPromptToast: View {
                 Text("Download Required")
                     .font(.system(size: 12, weight: .semibold))
                 
-                Text("Download this video to set it as your wallpaper")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                if let size = entry.downloadSize {
+                    Text("Download size: \(formatFileSize(size))")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Download this video to set it as your wallpaper")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
             }
             
             Spacer()
@@ -293,6 +299,13 @@ struct DownloadPromptToast: View {
                 }
             }
         }
+    }
+    
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -1049,7 +1062,9 @@ struct ExploreView: View {
             }
             
             for video in result.videos {
-                await loadThumbnail(for: video)
+                async let thumbnailTask = loadThumbnail(for: video)
+                async let sizeTask = loadDownloadSize(for: video)
+                _ = await (thumbnailTask, sizeTask)
             }
         } catch {
             await MainActor.run { isLoading = false }
@@ -1061,6 +1076,15 @@ struct ExploreView: View {
         await MainActor.run {
             if let thumbnail = thumbnail, let index = exploreVideos.firstIndex(where: { $0.id == video.id }) {
                 exploreVideos[index].thumbnail = thumbnail
+            }
+        }
+    }
+    
+    private func loadDownloadSize(for video: ExploreVideo) async {
+        let size = await MetadataService.shared.fetchDownloadSize(for: video.url)
+        await MainActor.run {
+            if let size = size, let index = exploreVideos.firstIndex(where: { $0.id == video.id }) {
+                exploreVideos[index].downloadSize = size
             }
         }
     }
@@ -1188,6 +1212,7 @@ struct ExploreVideo: Identifiable {
     let title: String
     let url: String
     var thumbnail: NSImage?
+    var downloadSize: Int64? = nil
 }
 
 extension ExploreVideo: Codable {

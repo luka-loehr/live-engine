@@ -189,11 +189,12 @@ class VideoWallpaperManager: ObservableObject {
         )
         videoEntries.insert(entry, at: 0)
         
-        // Fetch title and thumbnail
+        // Fetch title, thumbnail, and download size
         async let titleTask = MetadataService.shared.fetchTitle(for: youtubeURL)
         async let thumbnailTask = MetadataService.shared.fetchThumbnail(for: youtubeURL)
+        async let sizeTask = MetadataService.shared.fetchDownloadSize(for: youtubeURL)
         
-        let (title, thumbnail) = await (titleTask, thumbnailTask)
+        let (title, thumbnail, downloadSize) = await (titleTask, thumbnailTask, sizeTask)
         
         let finalTitle = title ?? videoID
         
@@ -201,6 +202,7 @@ class VideoWallpaperManager: ObservableObject {
         if let index = videoEntries.firstIndex(where: { $0.id == videoID }) {
             var updatedEntry = videoEntries[index]
             updatedEntry.name = finalTitle
+            updatedEntry.downloadSize = downloadSize
             saveTitle(finalTitle, for: videoID)
             
             if let thumb = thumbnail {
@@ -279,9 +281,9 @@ class VideoWallpaperManager: ObservableObject {
         }
         
         // Track expected output file as temporary before download starts
-        let (formatID, height, _): (String, Int, Int)
+        let (formatID, height, _, _): (String, Int, Int, Int64?)
         do {
-            (formatID, height, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
+            (formatID, height, _, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
         } catch {
             print("Failed to fetch format: \(error)")
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
@@ -410,9 +412,9 @@ class VideoWallpaperManager: ObservableObject {
         }
         
         // Track expected output file as temporary before download starts
-        let (formatID, height, _): (String, Int, Int)
+        let (formatID, height, _, _): (String, Int, Int, Int64?)
         do {
-            (formatID, height, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
+            (formatID, height, _, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
         } catch {
             print("Failed to fetch format: \(error)")
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {

@@ -82,5 +82,15 @@ actor MetadataService {
         
         return nil
     }
+    
+    func fetchDownloadSize(for youtubeURL: String) async -> Int64? {
+        do {
+            let (_, _, _, size) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
+            return size
+        } catch {
+            print("Failed to fetch download size: \(error)")
+            return nil
+        }
+    }
 }
 
