@@ -318,7 +318,8 @@ class DatabaseService: ObservableObject {
         let formatter = ISO8601DateFormatter()
         let addedAtString = formatter.string(from: Date())
         
-        let query = "INSERT INTO library_entries (id, title, added_at, is_downloaded) VALUES (?, ?, ?, 0);"
+        // Use INSERT OR IGNORE to handle race conditions gracefully
+        let query = "INSERT OR IGNORE INTO library_entries (id, title, added_at, is_downloaded) VALUES (?, ?, ?, 0);"
         var statement: OpaquePointer?
         
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
@@ -327,7 +328,10 @@ class DatabaseService: ObservableObject {
             sqlite3_bind_text(statement, 3, addedAtString, -1, nil)
             
             if sqlite3_step(statement) == SQLITE_DONE {
-                loadLibrary()
+                // Only reload if a row was actually inserted (check changes count)
+                if sqlite3_changes(db) > 0 {
+                    loadLibrary()
+                }
             } else {
                 print("Error adding to library: \(String(cString: sqlite3_errmsg(db)))")
             }

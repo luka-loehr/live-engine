@@ -55,7 +55,7 @@ actor MetadataService {
     }
     
     func fetchThumbnail(for youtubeURL: String) async -> NSImage? {
-        guard let videoID = await extractVideoID(from: youtubeURL) else {
+        guard let videoID = extractVideoID(from: youtubeURL) else {
             return nil
         }
         

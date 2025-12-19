@@ -241,17 +241,20 @@ actor DownloadService {
             return outputURL
         }
         
-        // yt-dlp might have created a file with a slightly different name
+        // yt-dlp might have created a file with a slightly different name or extension
         // Check for files in the same directory that match the pattern
         let directory = outputURL.deletingLastPathComponent()
         let baseName = outputURL.deletingPathExtension().lastPathComponent
         let expectedExtension = outputURL.pathExtension
         
+        // Common video extensions that yt-dlp might use
+        let videoExtensions = ["mp4", "mkv", "webm", "m4a", "mp3"]
+        
         if let directoryContents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
-            // Look for files that start with the base name and have the expected extension
+            // First, look for files that start with the base name and have the expected extension
             if let matchingFile = directoryContents.first(where: { file in
                 let fileName = file.deletingPathExtension().lastPathComponent
-                return fileName.hasPrefix(baseName) && file.pathExtension == expectedExtension
+                return fileName.hasPrefix(baseName) && file.pathExtension.lowercased() == expectedExtension.lowercased()
             }) {
                 // If the name differs, rename it to match expected name
                 if matchingFile.path != outputURL.path {
@@ -259,9 +262,48 @@ actor DownloadService {
                 }
                 return outputURL
             }
+            
+            // If not found, look for any video file that contains the base name
+            // This handles cases where yt-dlp appends characters or uses different extensions
+            if let matchingFile = directoryContents.first(where: { file in
+                let fileName = file.deletingPathExtension().lastPathComponent
+                let ext = file.pathExtension.lowercased()
+                // Check if filename contains base name and has a video extension
+                return fileName.contains(baseName) && videoExtensions.contains(ext)
+            }) {
+                // Rename to expected name/extension
+                if matchingFile.path != outputURL.path {
+                    try? FileManager.default.moveItem(at: matchingFile, to: outputURL)
+                }
+                return outputURL
+            }
+            
+            // Last resort: look for any new video files created during download
+            // (files that weren't in initialFiles list)
+            let newVideoFiles = directoryContents.filter { file in
+                let ext = file.pathExtension.lowercased()
+                let isVideoFile = videoExtensions.contains(ext)
+                let isNewFile = !initialFiles.contains(file)
+                return isVideoFile && isNewFile
+            }
+            
+            if let newestFile = newVideoFiles.max(by: { file1, file2 in
+                let date1 = (try? file1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
+                let date2 = (try? file2.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
+                return date1 < date2
+            }) {
+                // Rename to expected name/extension
+                if newestFile.path != outputURL.path {
+                    try? FileManager.default.moveItem(at: newestFile, to: outputURL)
+                }
+                return outputURL
+            }
         }
         
-        throw DownloadError.downloadFailed("Output file missing after download")
+        // Provide more detailed error message for debugging
+        let directoryPath = directory.path
+        let availableFiles = (try? FileManager.default.contentsOfDirectory(atPath: directoryPath)) ?? []
+        throw DownloadError.downloadFailed("Output file missing after download. Expected: \(outputURL.lastPathComponent), Directory contents: \(availableFiles.joined(separator: ", "))")
     }
     
     // Helper to find temporary files created during download
