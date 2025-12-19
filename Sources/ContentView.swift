@@ -445,7 +445,6 @@ struct VideoEntryCard: View {
                             .padding(8)
                         }
                         .transition(.opacity)
-                        .allowsHitTesting(isHoveringTrash)
                     }
                     
                     // Download progress bar
@@ -490,10 +489,11 @@ struct VideoEntryCard: View {
                 )
                 .shadow(color: Color.black.opacity(0.15), radius: 4, y: 2)
                 .scaleEffect(isHovering ? 1.02 : 1.0)
-                .contentShape(Rectangle())
                 .onTapGesture {
-                    Task {
-                        await wallpaperManager.downloadAndSetWallpaper(entry)
+                    if !isHoveringTrash {
+                        Task {
+                            await wallpaperManager.downloadAndSetWallpaper(entry)
+                        }
                     }
                 }
             }
