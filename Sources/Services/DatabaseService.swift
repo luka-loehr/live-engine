@@ -127,6 +127,16 @@ class DatabaseService: ObservableObject {
         );
         """
         
+        // Video metadata table - stores thumbnail path and download size by video ID
+        let createVideoMetadataTable = """
+        CREATE TABLE IF NOT EXISTS video_metadata (
+            video_id TEXT PRIMARY KEY,
+            thumbnail_path TEXT,
+            download_size INTEGER,
+            title TEXT
+        );
+        """
+        
         // Create indexes
         let createIndexes = """
         CREATE INDEX IF NOT EXISTS idx_video_files_video_id ON video_files(video_id);
@@ -138,6 +148,7 @@ class DatabaseService: ObservableObject {
             createVideoFilesTable,
             createExploreTable,
             createSettingsTable,
+            createVideoMetadataTable,
             createIndexes
         ]
         
@@ -604,6 +615,121 @@ class DatabaseService: ObservableObject {
     func updateSettings(_ update: (inout AppSettings) -> Void) {
         update(&settings)
         saveSettings()
+    }
+    
+    // MARK: - Video Metadata Operations
+    
+    struct VideoMetadata {
+        let videoId: String
+        let thumbnailPath: String?
+        let downloadSize: Int64?
+        let title: String?
+    }
+    
+    func getVideoMetadata(videoId: String) -> VideoMetadata? {
+        let query = "SELECT video_id, thumbnail_path, download_size, title FROM video_metadata WHERE video_id = ?;"
+        var statement: OpaquePointer?
+        
+        var metadata: VideoMetadata?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, videoId, -1, nil)
+            
+            if sqlite3_step(statement) == SQLITE_ROW {
+                let videoId = String(cString: sqlite3_column_text(statement, 0))
+                let thumbnailPath = sqlite3_column_text(statement, 1) != nil ? String(cString: sqlite3_column_text(statement, 1)) : nil
+                let downloadSize = sqlite3_column_type(statement, 2) != SQLITE_NULL ? sqlite3_column_int64(statement, 2) : nil
+                let title = sqlite3_column_text(statement, 3) != nil ? String(cString: sqlite3_column_text(statement, 3)) : nil
+                
+                metadata = VideoMetadata(
+                    videoId: videoId,
+                    thumbnailPath: thumbnailPath,
+                    downloadSize: downloadSize != nil ? Int64(downloadSize!) : nil,
+                    title: title
+                )
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return metadata
+    }
+    
+    func saveVideoMetadata(videoId: String, thumbnailPath: String? = nil, downloadSize: Int64? = nil, title: String? = nil) {
+        let query = """
+        INSERT OR REPLACE INTO video_metadata (video_id, thumbnail_path, download_size, title)
+        VALUES (?, ?, ?, ?);
+        """
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, videoId, -1, nil)
+            
+            if let thumbnailPath = thumbnailPath {
+                sqlite3_bind_text(statement, 2, thumbnailPath, -1, nil)
+            } else {
+                sqlite3_bind_null(statement, 2)
+            }
+            
+            if let downloadSize = downloadSize {
+                sqlite3_bind_int64(statement, 3, downloadSize)
+            } else {
+                sqlite3_bind_null(statement, 3)
+            }
+            
+            if let title = title {
+                sqlite3_bind_text(statement, 4, title, -1, nil)
+            } else {
+                sqlite3_bind_null(statement, 4)
+            }
+            
+            if sqlite3_step(statement) != SQLITE_DONE {
+                print("Error saving video metadata: \(String(cString: sqlite3_errmsg(db)))")
+            }
+        }
+        
+        sqlite3_finalize(statement)
+    }
+    
+    func updateVideoMetadata(videoId: String, thumbnailPath: String? = nil, downloadSize: Int64? = nil, title: String? = nil) {
+        var updates: [String] = []
+        var values: [Any] = []
+        
+        if let thumbnailPath = thumbnailPath {
+            updates.append("thumbnail_path = ?")
+            values.append(thumbnailPath)
+        }
+        
+        if let downloadSize = downloadSize {
+            updates.append("download_size = ?")
+            values.append(downloadSize)
+        }
+        
+        if let title = title {
+            updates.append("title = ?")
+            values.append(title)
+        }
+        
+        guard !updates.isEmpty else { return }
+        
+        let query = "UPDATE video_metadata SET \(updates.joined(separator: ", ")) WHERE video_id = ?;"
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            var bindIndex: Int32 = 1
+            for value in values {
+                if let stringValue = value as? String {
+                    sqlite3_bind_text(statement, bindIndex, stringValue, -1, nil)
+                } else if let intValue = value as? Int64 {
+                    sqlite3_bind_int64(statement, bindIndex, intValue)
+                }
+                bindIndex += 1
+            }
+            sqlite3_bind_text(statement, bindIndex, videoId, -1, nil)
+            
+            sqlite3_step(statement)
+        }
+        
+        sqlite3_finalize(statement)
     }
 }
 

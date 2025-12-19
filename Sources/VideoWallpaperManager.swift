@@ -89,8 +89,19 @@ class VideoWallpaperManager: ObservableObject {
         for libraryEntry in db.library {
             let videoID = libraryEntry.id
             
-            // Load thumbnail
-            let thumbnail = await loadLocalThumbnail(for: videoID)
+            // Load thumbnail from database metadata or disk
+            var thumbnail = await loadLocalThumbnail(for: videoID)
+            
+            // Load download size from database metadata
+            var downloadSize: Int64? = nil
+            if let metadata = db.getVideoMetadata(videoId: videoID) {
+                downloadSize = metadata.downloadSize
+                // Also try to load thumbnail from metadata path if not already loaded
+                if thumbnail == nil, let thumbnailPath = metadata.thumbnailPath,
+                   FileManager.default.fileExists(atPath: thumbnailPath) {
+                    thumbnail = NSImage(contentsOfFile: thumbnailPath)
+                }
+            }
             
             // Get video file from database (only permanent files)
             let videoFiles = db.getVideoFiles(videoId: videoID, includeTemporary: false)
@@ -120,7 +131,8 @@ class VideoWallpaperManager: ObservableObject {
                 videoURL: videoURL,
                 isDownloaded: isDownloaded,
                 isDownloading: false,
-                downloadProgress: isDownloaded ? 1.0 : 0.0
+                downloadProgress: isDownloaded ? 1.0 : 0.0,
+                downloadSize: downloadSize
             ))
         }
         
@@ -151,6 +163,9 @@ class VideoWallpaperManager: ObservableObject {
                 fileSize: fileSize,
                 isTemporary: false
             )
+            
+            // Also save to video_metadata table
+            db.updateVideoMetadata(videoId: videoID, thumbnailPath: path.path)
         }
     }
     
@@ -168,6 +183,9 @@ class VideoWallpaperManager: ObservableObject {
                 fileSize: fileSize,
                 isTemporary: false
             )
+            
+            // Also save to video_metadata table
+            db.updateVideoMetadata(videoId: videoID, title: title)
         }
     }
     
@@ -180,36 +198,63 @@ class VideoWallpaperManager: ObservableObject {
             return
         }
         
-        // Create entry with video ID as placeholder
-        let entry = VideoEntry(
-            id: videoID,
-            name: videoID,
-            thumbnail: nil,
-            isDownloaded: false
-        )
-        videoEntries.insert(entry, at: 0)
+        // Check database first for metadata
+        var title: String?
+        var thumbnail: NSImage?
+        var downloadSize: Int64?
         
-        // Fetch title, thumbnail, and download size
-        async let titleTask = MetadataService.shared.fetchTitle(for: youtubeURL)
-        async let thumbnailTask = MetadataService.shared.fetchThumbnail(for: youtubeURL)
-        async let sizeTask = MetadataService.shared.fetchDownloadSize(for: youtubeURL)
+        if let metadata = db.getVideoMetadata(videoId: videoID) {
+            // Load from database
+            title = metadata.title
+            downloadSize = metadata.downloadSize
+            
+            // Load thumbnail from disk if path exists
+            if let thumbnailPath = metadata.thumbnailPath,
+               FileManager.default.fileExists(atPath: thumbnailPath) {
+                thumbnail = NSImage(contentsOfFile: thumbnailPath)
+            }
+        }
         
-        let (title, thumbnail, downloadSize) = await (titleTask, thumbnailTask, sizeTask)
+        // Fetch missing metadata from server
+        if title == nil || thumbnail == nil || downloadSize == nil {
+            async let titleTask = title == nil ? MetadataService.shared.fetchTitle(for: youtubeURL) : Task { title }
+            async let thumbnailTask = thumbnail == nil ? MetadataService.shared.fetchThumbnail(for: youtubeURL) : Task { thumbnail }
+            async let sizeTask = downloadSize == nil ? MetadataService.shared.fetchDownloadSize(for: youtubeURL) : Task { downloadSize }
+            
+            let (fetchedTitle, fetchedThumbnail, fetchedSize) = await (titleTask, thumbnailTask, sizeTask)
+            
+            if title == nil {
+                title = fetchedTitle
+            }
+            if thumbnail == nil {
+                thumbnail = fetchedThumbnail
+            }
+            if downloadSize == nil {
+                downloadSize = fetchedSize
+            }
+        }
         
         let finalTitle = title ?? videoID
         
-        // Update entry
-        if let index = videoEntries.firstIndex(where: { $0.id == videoID }) {
-            var updatedEntry = videoEntries[index]
-            updatedEntry.name = finalTitle
-            updatedEntry.downloadSize = downloadSize
-            saveTitle(finalTitle, for: videoID)
-            
-            if let thumb = thumbnail {
-                updatedEntry.thumbnail = thumb
-                saveThumbnail(thumb, for: videoID)
-            }
-            videoEntries[index] = updatedEntry
+        // Create entry with metadata
+        let entry = VideoEntry(
+            id: videoID,
+            name: finalTitle,
+            thumbnail: thumbnail,
+            isDownloaded: false,
+            downloadSize: downloadSize
+        )
+        videoEntries.insert(entry, at: 0)
+        
+        // Save metadata to database and disk
+        saveTitle(finalTitle, for: videoID)
+        if let thumb = thumbnail {
+            saveThumbnail(thumb, for: videoID)
+        }
+        
+        // Save download size to metadata table (thumbnail and title are already saved by saveThumbnail/saveTitle)
+        if let size = downloadSize {
+            db.updateVideoMetadata(videoId: videoID, downloadSize: size)
         }
         
         // Add to database

@@ -1072,19 +1072,63 @@ struct ExploreView: View {
     }
     
     private func loadThumbnail(for video: ExploreVideo) async {
+        // Check database first
+        let db = DatabaseService.shared
+        if let metadata = db.getVideoMetadata(videoId: video.id),
+           let thumbnailPath = metadata.thumbnailPath,
+           FileManager.default.fileExists(atPath: thumbnailPath),
+           let thumbnail = NSImage(contentsOfFile: thumbnailPath) {
+            await MainActor.run {
+                if let index = exploreVideos.firstIndex(where: { $0.id == video.id }) {
+                    exploreVideos[index].thumbnail = thumbnail
+                }
+            }
+            return
+        }
+        
+        // If not in database, fetch from server
         let thumbnail = await MetadataService.shared.fetchThumbnail(for: video.url)
         await MainActor.run {
             if let thumbnail = thumbnail, let index = exploreVideos.firstIndex(where: { $0.id == video.id }) {
                 exploreVideos[index].thumbnail = thumbnail
+                
+                // Save thumbnail to disk and database
+                let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                let thumbnailsDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Thumbnails", isDirectory: true)
+                try? FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
+                let path = thumbnailsDirectory.appendingPathComponent("\(video.id).jpg")
+                
+                if let tiffData = thumbnail.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
+                    try? jpegData.write(to: path)
+                    db.saveVideoMetadata(videoId: video.id, thumbnailPath: path.path)
+                }
             }
         }
     }
     
     private func loadDownloadSize(for video: ExploreVideo) async {
+        // Check database first
+        let db = DatabaseService.shared
+        if let metadata = db.getVideoMetadata(videoId: video.id),
+           let downloadSize = metadata.downloadSize {
+            await MainActor.run {
+                if let index = exploreVideos.firstIndex(where: { $0.id == video.id }) {
+                    exploreVideos[index].downloadSize = downloadSize
+                }
+            }
+            return
+        }
+        
+        // If not in database, fetch from server
         let size = await MetadataService.shared.fetchDownloadSize(for: video.url)
         await MainActor.run {
             if let size = size, let index = exploreVideos.firstIndex(where: { $0.id == video.id }) {
                 exploreVideos[index].downloadSize = size
+                
+                // Save to database
+                db.saveVideoMetadata(videoId: video.id, downloadSize: size)
             }
         }
     }
