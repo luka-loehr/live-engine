@@ -217,20 +217,28 @@ class VideoWallpaperManager: ObservableObject {
         
         // Fetch missing metadata from server
         if title == nil || thumbnail == nil || downloadSize == nil {
-            async let titleTask = title == nil ? MetadataService.shared.fetchTitle(for: youtubeURL) : Task { title }
-            async let thumbnailTask = thumbnail == nil ? MetadataService.shared.fetchThumbnail(for: youtubeURL) : Task { thumbnail }
-            async let sizeTask = downloadSize == nil ? MetadataService.shared.fetchDownloadSize(for: youtubeURL) : Task { downloadSize }
-            
-            let (fetchedTitle, fetchedThumbnail, fetchedSize) = await (titleTask, thumbnailTask, sizeTask)
+            var titleTask: Task<String?, Never>?
+            var thumbnailTask: Task<NSImage?, Never>?
+            var sizeTask: Task<Int64?, Never>?
             
             if title == nil {
-                title = fetchedTitle
+                titleTask = Task { await MetadataService.shared.fetchTitle(for: youtubeURL) }
             }
             if thumbnail == nil {
-                thumbnail = fetchedThumbnail
+                thumbnailTask = Task { await MetadataService.shared.fetchThumbnail(for: youtubeURL) }
             }
             if downloadSize == nil {
-                downloadSize = fetchedSize
+                sizeTask = Task { await MetadataService.shared.fetchDownloadSize(for: youtubeURL) }
+            }
+            
+            if let task = titleTask {
+                title = await task.value
+            }
+            if let task = thumbnailTask {
+                thumbnail = await task.value
+            }
+            if let task = sizeTask {
+                downloadSize = await task.value
             }
         }
         
