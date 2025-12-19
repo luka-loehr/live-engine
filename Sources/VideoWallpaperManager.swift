@@ -358,12 +358,14 @@ class VideoWallpaperManager: ObservableObject {
             // Clean up temporary files from disk and database
             db.deleteTemporaryFiles(videoId: entry.id)
             
-            // Update entry with video URL and download status
+            // Update entry with video URL and download status (replace entire entry to trigger SwiftUI update)
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].videoURL = finalPath
-                videoEntries[index].isDownloaded = true
-                videoEntries[index].isDownloading = false
-                videoEntries[index].downloadProgress = 1.0
+                var updatedEntry = videoEntries[index]
+                updatedEntry.videoURL = finalPath
+                updatedEntry.isDownloaded = true
+                updatedEntry.isDownloading = false
+                updatedEntry.downloadProgress = 1.0
+                videoEntries[index] = updatedEntry
             }
             
             // Update database
@@ -487,12 +489,14 @@ class VideoWallpaperManager: ObservableObject {
             // Clean up temporary files from disk and database
             db.deleteTemporaryFiles(videoId: entry.id)
             
-            // Update entry with video URL and download status
+            // Update entry with video URL and download status (replace entire entry to trigger SwiftUI update)
             if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].videoURL = finalPath
-                videoEntries[index].isDownloaded = true
-                videoEntries[index].isDownloading = false
-                videoEntries[index].downloadProgress = 1.0
+                var updatedEntry = videoEntries[index]
+                updatedEntry.videoURL = finalPath
+                updatedEntry.isDownloaded = true
+                updatedEntry.isDownloading = false
+                updatedEntry.downloadProgress = 1.0
+                videoEntries[index] = updatedEntry
             }
             
             // Update database
