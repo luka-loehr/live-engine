@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var selectedTab: TabSelection = .myWallpaper
     @State private var showToast = false
     @State private var toastMessage = ""
+    @State private var showDownloadPrompt = false
+    @State private var pendingDownloadEntry: VideoEntry?
     
     enum TabSelection: CaseIterable {
         case myWallpaper
@@ -55,8 +57,14 @@ struct ContentView: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else {
                         if selectedTab == .myWallpaper {
-                            LibraryView(wallpaperManager: wallpaperManager, showingURLInput: $showingURLInput)
-                                .transition(.opacity)
+                            LibraryView(
+                                wallpaperManager: wallpaperManager,
+                                showingURLInput: $showingURLInput,
+                                onShowDownloadPrompt: { entry in
+                                    showDownloadPrompt(for: entry)
+                                }
+                            )
+                            .transition(.opacity)
                         } else {
                             ExploreView(wallpaperManager: wallpaperManager, onAdded: { showToastMessage("Added to Library") })
                                 .transition(.opacity)
@@ -77,6 +85,22 @@ struct ContentView: View {
                 }
                 .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showToast)
             }
+            
+            // Download prompt toast
+            if showDownloadPrompt, let entry = pendingDownloadEntry {
+                VStack {
+                    Spacer()
+                    DownloadPromptToast(entry: entry, wallpaperManager: wallpaperManager) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showDownloadPrompt = false
+                            pendingDownloadEntry = nil
+                        }
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 16)
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showDownloadPrompt)
+            }
         }
         .background(.thinMaterial)
         .frame(width: 460, height: 380)
@@ -92,6 +116,13 @@ struct ContentView: View {
             withAnimation(.easeOut(duration: 0.2)) {
                 showToast = false
             }
+        }
+    }
+    
+    func showDownloadPrompt(for entry: VideoEntry) {
+        pendingDownloadEntry = entry
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            showDownloadPrompt = true
         }
     }
 }
@@ -115,6 +146,61 @@ struct ToastView: View {
         .background(.regularMaterial)
         .clipShape(Capsule())
         .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+    }
+}
+
+// MARK: - Download Prompt Toast
+
+struct DownloadPromptToast: View {
+    let entry: VideoEntry
+    @ObservedObject var wallpaperManager: VideoWallpaperManager
+    let onDismiss: () -> Void
+    @State private var isHoveringDownload = false
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.blue)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Download Required")
+                    .font(.system(size: 12, weight: .semibold))
+                
+                Text("Download this video to set it as your wallpaper")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Button(action: {
+                Task {
+                    await wallpaperManager.downloadAndSetWallpaper(entry)
+                }
+                onDismiss()
+            }) {
+                Text("Download")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(isHoveringDownload ? .white : .blue)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(isHoveringDownload ? Color.blue : Color.blue.opacity(0.15))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .onHover { h in
+                withAnimation(.easeOut(duration: 0.15)) {
+                    isHoveringDownload = h
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .frame(maxWidth: 400)
     }
 }
 
@@ -312,6 +398,7 @@ struct URLInputView: View {
 struct LibraryView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @Binding var showingURLInput: Bool
+    var onShowDownloadPrompt: (VideoEntry) -> Void
     
     let columns = [
         GridItem(.adaptive(minimum: 140), spacing: 12)
@@ -323,11 +410,15 @@ struct LibraryView: View {
                 AddWallpaperCard(showingURLInput: $showingURLInput)
                 
                 ForEach(wallpaperManager.videoEntries) { entry in
-                    VideoEntryCard(entry: entry, wallpaperManager: wallpaperManager)
-                        .transition(.asymmetric(
-                            insertion: .scale.combined(with: .opacity),
-                            removal: .scale(scale: 0.8).combined(with: .opacity)
-                        ))
+                    VideoEntryCard(
+                        entry: entry,
+                        wallpaperManager: wallpaperManager,
+                        onShowDownloadPrompt: onShowDownloadPrompt
+                    )
+                    .transition(.asymmetric(
+                        insertion: .scale.combined(with: .opacity),
+                        removal: .scale(scale: 0.8).combined(with: .opacity)
+                    ))
                 }
             }
             .padding(16)
@@ -388,6 +479,7 @@ struct AddWallpaperCard: View {
 struct VideoEntryCard: View {
     let entry: VideoEntry
     @ObservedObject var wallpaperManager: VideoWallpaperManager
+    var onShowDownloadPrompt: (VideoEntry) -> Void
     @State private var isHovering = false
     @State private var isHoveringTrash = false
     
@@ -402,6 +494,15 @@ struct VideoEntryCard: View {
                             .aspectRatio(16/9, contentMode: .fill)
                             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                             .clipped()
+                            .opacity(entry.videoURL == nil ? 0.5 : 1.0)
+                            .overlay(
+                                // Grey overlay for undownloaded videos
+                                entry.videoURL == nil ?
+                                Rectangle()
+                                    .fill(Color.black.opacity(0.3))
+                                    .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
+                                : nil
+                            )
                     } else {
                         Rectangle()
                             .fill(
@@ -491,8 +592,15 @@ struct VideoEntryCard: View {
                 .scaleEffect(isHovering ? 1.02 : 1.0)
                 .onTapGesture {
                     if !isHoveringTrash {
-                        Task {
-                            await wallpaperManager.downloadAndSetWallpaper(entry)
+                        // Check if video is downloaded
+                        if entry.videoURL == nil {
+                            // Show download prompt toast
+                            onShowDownloadPrompt(entry)
+                        } else {
+                            // Video is downloaded, play it
+                            Task {
+                                await wallpaperManager.downloadAndSetWallpaper(entry)
+                            }
                         }
                     }
                 }
