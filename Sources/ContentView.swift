@@ -454,8 +454,6 @@ struct VideoEntryCard: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @State private var isHovering = false
     @State private var isHoveringTrash = false
-    @State private var isEditingTitle = false
-    @State private var editedTitle = ""
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -487,68 +485,30 @@ struct VideoEntryCard: View {
                             )
                     }
                     
-                    // Gradient overlay at bottom
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0),
-                            Color.black.opacity(isHovering ? 0.8 : 0.5)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: geometry.size.width * 9/16 * 0.5)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    
-                    // Title and controls bar
-                    VStack {
-                        Spacer()
-                        HStack(alignment: .center, spacing: 8) {
-                            if isEditingTitle {
-                                TextField("Title", text: $editedTitle)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .textFieldStyle(.plain)
-                                    .foregroundColor(.white)
-                                    .onSubmit {
-                                        if !editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            wallpaperManager.renameEntry(entry, newName: editedTitle.trimmingCharacters(in: .whitespacesAndNewlines))
-                                        }
-                                        isEditingTitle = false
-                                    }
-                                    .onAppear { editedTitle = entry.name }
-                            } else {
-                                Text(entry.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
-                                    .foregroundColor(.white)
-                                    .onTapGesture {
-                                        isEditingTitle = true
-                                        editedTitle = entry.name
-                                    }
-                            }
-                            
+                    // Delete button - only on hover
+                    if isHovering {
+                        VStack {
                             Spacer()
-                            
-                            // Delete button - only on hover
-                            if isHovering {
+                            HStack {
+                                Spacer()
                                 Button(action: { wallpaperManager.deleteEntry(entry) }) {
                                     Image(systemName: "trash.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(isHoveringTrash ? Color(red: 1, green: 0.4, blue: 0.4) : .white.opacity(0.8))
-                                        .frame(width: 22, height: 22)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(isHoveringTrash ? Color(red: 1, green: 0.4, blue: 0.4) : .white.opacity(0.9))
+                                        .frame(width: 24, height: 24)
                                         .background(
                                             Circle()
-                                                .fill(isHoveringTrash ? Color.red.opacity(0.2) : Color.white.opacity(0.1))
+                                                .fill(isHoveringTrash ? Color.red.opacity(0.25) : Color.black.opacity(0.4))
                                         )
                                 }
                                 .buttonStyle(.plain)
                                 .onHover { h in
                                     withAnimation(.easeOut(duration: 0.15)) { isHoveringTrash = h }
                                 }
-                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
                             }
+                            .padding(8)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 10)
+                        .transition(.opacity)
                     }
                     
                     // Download progress bar
@@ -598,7 +558,7 @@ struct VideoEntryCard: View {
                 )
                 .scaleEffect(isHovering ? 1.02 : 1.0)
                 .onTapGesture {
-                    if !isHoveringTrash && !isEditingTitle {
+                    if !isHoveringTrash {
                         Task {
                             await wallpaperManager.downloadAndSetWallpaper(entry)
                         }
@@ -843,41 +803,19 @@ struct ExploreVideoCard: View {
                         )
                 }
                 
-                // Gradient overlay
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0),
-                        Color.black.opacity(isHovering ? 0.85 : 0.5)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: geometry.size.width * 9/16 * 0.6)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                
-                // Content overlay
-                VStack {
-                    Spacer()
-                    
-                    HStack(alignment: .bottom) {
-                        // Title
-                        Text(video.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .foregroundColor(.white)
-                        
+                // Add button overlay - shown on hover
+                if isHovering {
+                    VStack {
                         Spacer()
-                        
-                        // Add button - shown on hover
-                        if isHovering {
+                        HStack {
+                            Spacer()
                             Button(action: {
                                 Task {
                                     await wallpaperManager.addVideo(youtubeURL: video.url)
                                 }
                             }) {
                                 Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 20))
+                                    .font(.system(size: 22))
                                     .foregroundStyle(
                                         isHoveringAdd
                                             ? LinearGradient(
@@ -900,10 +838,10 @@ struct ExploreVideoCard: View {
                             .onHover { h in
                                 withAnimation(.easeOut(duration: 0.15)) { isHoveringAdd = h }
                             }
-                            .transition(.scale.combined(with: .opacity))
                         }
+                        .padding(10)
                     }
-                    .padding(10)
+                    .transition(.opacity)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
