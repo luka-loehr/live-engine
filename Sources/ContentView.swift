@@ -692,6 +692,7 @@ struct VideoEntryCard: View {
                                     .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                                 : nil
                             )
+                            .transition(.opacity)
                     } else {
                         Rectangle()
                             .fill(
@@ -709,7 +710,9 @@ struct VideoEntryCard: View {
                                 ProgressView()
                                     .scaleEffect(0.6)
                             )
+                            .transition(.opacity)
                     }
+                    
                     
                     // Delete button - only on hover
                     if isHovering {
@@ -766,6 +769,7 @@ struct VideoEntryCard: View {
                         }
                     }
                 }
+                .animation(.easeInOut(duration: 0.3), value: entry.thumbnail != nil)
                 .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(
@@ -1158,6 +1162,7 @@ struct ExploreVideoCard: View {
                         .aspectRatio(16/9, contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                         .clipped()
+                        .transition(.opacity)
                 } else {
                     Rectangle()
                         .fill(
@@ -1175,6 +1180,7 @@ struct ExploreVideoCard: View {
                             ProgressView()
                                 .scaleEffect(0.6)
                         )
+                        .transition(.opacity)
                 }
                 
                 // Add button overlay - shown on hover
@@ -1218,6 +1224,7 @@ struct ExploreVideoCard: View {
                     .transition(.opacity)
                 }
             }
+            .animation(.easeInOut(duration: 0.3), value: video.thumbnail != nil)
             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
