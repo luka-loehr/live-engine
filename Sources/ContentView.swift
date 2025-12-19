@@ -1056,10 +1056,15 @@ struct ExploreView: View {
                 isLoading = false
             }
             
-            for video in result.videos {
-                async let thumbnailTask: Void = loadThumbnail(for: video)
-                async let sizeTask: Void = loadDownloadSize(for: video)
-                _ = await (thumbnailTask, sizeTask)
+            // Fetch all thumbnails and sizes in parallel
+            await withTaskGroup(of: Void.self) { group in
+                for video in result.videos {
+                    group.addTask {
+                        async let thumbnailTask: Void = loadThumbnail(for: video)
+                        async let sizeTask: Void = loadDownloadSize(for: video)
+                        _ = await (thumbnailTask, sizeTask)
+                    }
+                }
             }
         } catch {
             await MainActor.run { isLoading = false }
