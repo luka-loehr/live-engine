@@ -107,20 +107,28 @@ actor DownloadService {
         formatID: String,
         outputURL: URL,
         onProgress: @escaping (Double) -> Void
-    ) async throws {
+    ) async throws -> URL {
         guard let ytdlp = findYtDlp() else { throw DownloadError.ytdlpNotFound }
+        
+        // Get the directory where temporary files might be created
+        let tempDirectory = outputURL.deletingLastPathComponent()
+        let initialFiles = (try? FileManager.default.contentsOfDirectory(at: tempDirectory, includingPropertiesForKeys: nil)) ?? []
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ytdlp)
         process.environment = ["PYTHONUNBUFFERED": "1"]
         
+        // Use format specification that ensures proper merging
+        // The format string ensures video+audio are merged into mp4
         process.arguments = [
             "-f", "\(formatID)+bestaudio/best",
             "--merge-output-format", "mp4",
-            "-o", outputURL.path,
+            "--no-mtime",  // Don't set file modification time
             "--no-playlist",
             "--newline",
             "--progress",
+            "--no-warnings",  // Reduce noise in output
+            "-o", outputURL.path,
             url
         ]
         
@@ -160,11 +168,63 @@ actor DownloadService {
         process.waitUntilExit()
         
         if process.terminationStatus != 0 {
+            // Clean up any partial files
+            let finalFiles = (try? FileManager.default.contentsOfDirectory(at: tempDirectory, includingPropertiesForKeys: nil)) ?? []
+            let newFiles = finalFiles.filter { file in
+                !initialFiles.contains(file) && file.lastPathComponent.contains(outputURL.deletingPathExtension().lastPathComponent)
+            }
+            for file in newFiles {
+                try? FileManager.default.removeItem(at: file)
+            }
+            
             throw DownloadError.downloadFailed("Process exited with code \(process.terminationStatus)")
         }
         
-        guard FileManager.default.fileExists(atPath: outputURL.path) else {
-            throw DownloadError.downloadFailed("Output file missing")
+        // Check if the exact output file exists
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            return outputURL
+        }
+        
+        // yt-dlp might have created a file with a slightly different name
+        // Check for files in the same directory that match the pattern
+        let directory = outputURL.deletingLastPathComponent()
+        let baseName = outputURL.deletingPathExtension().lastPathComponent
+        let expectedExtension = outputURL.pathExtension
+        
+        if let directoryContents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            // Look for files that start with the base name and have the expected extension
+            if let matchingFile = directoryContents.first(where: { file in
+                let fileName = file.deletingPathExtension().lastPathComponent
+                return fileName.hasPrefix(baseName) && file.pathExtension == expectedExtension
+            }) {
+                // If the name differs, rename it to match expected name
+                if matchingFile.path != outputURL.path {
+                    try? FileManager.default.moveItem(at: matchingFile, to: outputURL)
+                }
+                return outputURL
+            }
+        }
+        
+        throw DownloadError.downloadFailed("Output file missing after download")
+    }
+    
+    // Helper to find temporary files created during download
+    func findTemporaryFiles(in directory: URL, matching videoId: String) -> [URL] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        
+        // yt-dlp temporary files often have extensions like .webm, .f137, .f140, etc.
+        // or are in the format videoId.extension.part
+        return files.filter { file in
+            let fileName = file.lastPathComponent
+            // Check if it's a temporary file related to this video
+            return (fileName.hasPrefix(videoId) || fileName.contains(videoId)) &&
+                   (file.pathExtension == "webm" || 
+                    file.pathExtension == "f137" || 
+                    file.pathExtension == "f140" ||
+                    file.pathExtension == "part" ||
+                    fileName.contains(".part"))
         }
     }
 }

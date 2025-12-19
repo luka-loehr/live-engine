@@ -512,12 +512,13 @@ struct VideoEntryCard: View {
 struct SettingsView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     @State private var isHoveringFolder = false
+    @State private var isHoveringSupport = false
     @State private var isHoveringQuit = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Audio Toggle
-            HStack {
+        VStack(alignment: .leading, spacing: 0) {
+            // Audio Toggle Section
+            HStack(spacing: 10) {
                 Image(systemName: wallpaperManager.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
                     .font(.system(size: 12))
                     .foregroundColor(wallpaperManager.audioEnabled ? .accentColor : .secondary)
@@ -532,54 +533,89 @@ struct SettingsView: View {
                     .toggleStyle(.switch)
                     .scaleEffect(0.7)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             
             Divider()
+                .padding(.vertical, 4)
             
-            // Open Folder Button
-            Button(action: {
-                let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                let videosDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Videos", isDirectory: true)
-                NSWorkspace.shared.open(videosDirectory)
-            }) {
-                HStack {
-                    Image(systemName: "folder")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .frame(width: 20)
-                    
-                    Text("Open Videos Folder")
-                        .font(.system(size: 12))
-                    
-                    Spacer()
-                    
-                    Image(systemName: "arrow.up.forward")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary.opacity(0.6))
+            // Actions Section
+            VStack(spacing: 0) {
+                // Open Folder Button
+                Button(action: {
+                    let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    let videosDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Videos", isDirectory: true)
+                    NSWorkspace.shared.open(videosDirectory)
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringFolder ? .accentColor : .secondary)
+                            .frame(width: 20)
+                        
+                        Text("Open Videos Folder")
+                            .font(.system(size: 12))
+                        
+                        Spacer()
+                        
+                        Image(systemName: "arrow.up.forward")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(isHoveringFolder ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .onHover { h in
+                    withAnimation(.easeOut(duration: 0.15)) { isHoveringFolder = h }
+                }
+                
+                // Support Me Button
+                Button(action: {
+                    if let url = URL(string: "https://buymeacoffee.com/lukaloehr") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringSupport ? .pink : .secondary)
+                            .frame(width: 20)
+                        
+                        Text("Support Me")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringSupport ? .pink : .primary)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "arrow.up.forward")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(isHoveringSupport ? Color.pink.opacity(0.1) : Color.clear)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { h in
+                    withAnimation(.easeOut(duration: 0.15)) { isHoveringSupport = h }
+                }
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 4)
             
             Divider()
+                .padding(.vertical, 4)
             
-            // Version
-            HStack {
-                Text("MacLive")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("v1.0.0")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.6))
-            }
-            
-            Divider()
-            
-            // Quit Button
+            // Quit Button Section
             Button(action: {
                 NSApplication.shared.terminate(nil)
             }) {
-                HStack {
+                HStack(spacing: 10) {
                     Image(systemName: "power")
                         .font(.system(size: 12))
                         .foregroundColor(isHoveringQuit ? .red : .secondary)
@@ -591,14 +627,36 @@ struct SettingsView: View {
                     
                     Spacer()
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(isHoveringQuit ? Color.red.opacity(0.1) : Color.clear)
+                .cornerRadius(6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { h in
                 withAnimation(.easeOut(duration: 0.15)) { isHoveringQuit = h }
             }
+            .padding(.horizontal, 4)
+            
+            Divider()
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+            
+            // Version Section (at bottom)
+            HStack {
+                Text("MacLive")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("v1.0.0")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.6))
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
         }
-        .padding(12)
+        .frame(width: 200)
     }
 }
 
