@@ -28,6 +28,16 @@ if [ -f "Assets/Icons/AppIcon.icns" ]; then
     echo "App icon copied"
 fi
 
+# Copy menu bar icon resources
+if [ -f "Assets/Icons/MenuBarIcon.png" ]; then
+    cp Assets/Icons/MenuBarIcon.png "$APP_BUNDLE/Contents/Resources/"
+    echo "Menu bar icon (PNG) copied"
+fi
+if [ -f "Assets/Icons/MenuBarIcon.pdf" ]; then
+    cp Assets/Icons/MenuBarIcon.pdf "$APP_BUNDLE/Contents/Resources/"
+    echo "Menu bar icon (PDF) copied"
+fi
+
 echo "Signing app (ad-hoc)..."
 codesign --force --deep --sign - "$APP_BUNDLE"
 

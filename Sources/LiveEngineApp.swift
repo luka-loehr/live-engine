@@ -184,9 +184,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
     
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Handle dock icon click - show main window with library view
+        NSApp.setActivationPolicy(.regular)
+        MainWindow.shared?.show()
+        NotificationCenter.default.post(name: NSNotification.Name("ShowLibrary"), object: nil)
+        return true
+    }
+    
     @MainActor
     func createMenu() {
         menu = NSMenu()
+        
+        // Prevent menu from being minified/collapsed
+        menu.minimumWidth = 150
         
         // Library item
         let libraryItem = NSMenuItem(

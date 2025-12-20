@@ -62,10 +62,34 @@ struct ContentView: View {
                                     .foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             } else {
-                                Text(currentTip.isEmpty ? tips.randomElement() ?? tips[0] : currentTip)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                let tipText = currentTip.isEmpty ? tips.randomElement() ?? tips[0] : currentTip
+                                if tipText.contains("buymeacoffee.com") {
+                                    // Make support message clickable
+                                    let parts = tipText.components(separatedBy: "buymeacoffee.com/lukaloehr")
+                                    Button(action: {
+                                        if let url = URL(string: "https://buymeacoffee.com/lukaloehr") {
+                                            NSWorkspace.shared.open(url)
+                                        }
+                                    }) {
+                                        HStack(spacing: 0) {
+                                            if !parts[0].isEmpty {
+                                                Text(parts[0])
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            Text("buymeacoffee.com/lukaloehr")
+                                                .foregroundColor(.accentColor)
+                                                .underline()
+                                        }
+                                        .font(.system(size: 13))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Text(tipText)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     }
