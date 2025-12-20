@@ -121,6 +121,7 @@ class VideoWallpaperManager: ObservableObject {
                     
                     // Unload existing agent first if it exists (to update it)
                     // This prevents duplicate agents but doesn't trigger RunAtLoad
+                    // Suppress stderr to avoid "No such process" errors when agent isn't loaded
                     let unloadProcess = Process()
                     unloadProcess.executableURL = URL(fileURLWithPath: "/bin/launchctl")
                     if #available(macOS 10.15, *) {
@@ -129,6 +130,8 @@ class VideoWallpaperManager: ObservableObject {
                     } else {
                         unloadProcess.arguments = ["unload", launchAgentURL.path]
                     }
+                    // Redirect stderr to suppress "No such process" errors
+                    unloadProcess.standardError = FileHandle.nullDevice
                     try? unloadProcess.run()
                     unloadProcess.waitUntilExit()
                     
@@ -156,12 +159,17 @@ class VideoWallpaperManager: ObservableObject {
                     } else {
                         process.arguments = ["unload", launchAgentURL.path]
                     }
+                // Redirect stderr to suppress "No such process" errors
+                process.standardError = FileHandle.nullDevice
                 
                 do {
                     try process.run()
                     process.waitUntilExit()
                     // Don't fail if unload fails (it might not be loaded)
-                    print("[SETTINGS] Unloaded LaunchAgent (exit code: \(process.terminationStatus))")
+                    // Only log if exit code is 0 (successful unload)
+                    if process.terminationStatus == 0 {
+                        print("[SETTINGS] Unloaded LaunchAgent")
+                    }
                 } catch {
                     print("[SETTINGS] Failed to execute launchctl: \(error)")
                 }
