@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
-import AVFoundation
 import SwiftUI
+import AVFoundation
 
 @MainActor
 class VideoWallpaperManager: ObservableObject {
@@ -9,725 +9,303 @@ class VideoWallpaperManager: ObservableObject {
     @Published var currentPlayingID: String? = nil
     @Published var audioEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(audioEnabled, forKey: "MacLiveWallpaper.audioEnabled")
-            DatabaseService.shared.updateSettings { $0.audioEnabled = audioEnabled }
+            LocalStorageService.shared.updateSettings { $0.audioEnabled = audioEnabled }
             updateCurrentPlayerAudio()
         }
     }
-    
+
     private let thumbnailsDirectory: URL
-    private let metadataDirectory: URL
     private let videosDirectory: URL
-    private let db = DatabaseService.shared
-    
-    private var desktopWindow: DesktopWindow?
-    private var player: AVPlayer?
-    private var loopObserver: NSObjectProtocol?
-    private var timeObserver: Any?
+    private let storage = LocalStorageService.shared
+
+    // Use LiveWallpaperPlayer for video playback
+    private let wallpaperPlayer = LiveWallpaperPlayer()
     
     init() {
-        // Load audio setting from database/UserDefaults (default to false/muted)
-        audioEnabled = DatabaseService.shared.settings.audioEnabled
-        
+        print("[VIDEO] Initializing VideoWallpaperManager...")
+        // Load audio setting from local storage (default to false/muted)
+        audioEnabled = LocalStorageService.shared.settings.audioEnabled
+
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         thumbnailsDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Thumbnails", isDirectory: true)
-        metadataDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Metadata", isDirectory: true)
         videosDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Videos", isDirectory: true)
-        
+
         try? FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: videosDirectory, withIntermediateDirectories: true)
-        
+        print("[VIDEO] Directories initialized: thumbnails=\(thumbnailsDirectory.path), videos=\(videosDirectory.path)")
+
         Task {
             await loadLibrary()
         }
     }
     
     private func updateCurrentPlayerAudio() {
-        guard let player = player else { return }
-        
-        if audioEnabled {
-            player.isMuted = false
-            player.volume = 1.0
-            // Remove audio mix to restore normal audio
-            player.currentItem?.audioMix = nil
-        } else {
-            player.isMuted = true
-            player.volume = 0.0
-            // Apply silent audio mix
-            applySilentAudioMix(to: player)
-        }
+        // Update audio setting on the wallpaper player
+        wallpaperPlayer.setAudioEnabled(audioEnabled)
     }
     
-    private func applySilentAudioMix(to player: AVPlayer) {
-        guard let playerItem = player.currentItem else { return }
-        
-        let audioTracks = playerItem.tracks.compactMap { track -> AVAssetTrack? in
-            guard let assetTrack = track.assetTrack, assetTrack.mediaType == .audio else { return nil }
-            return assetTrack
-        }
-        
-        if !audioTracks.isEmpty {
-            let audioMix = AVMutableAudioMix()
-            var inputParameters: [AVMutableAudioMixInputParameters] = []
-            for track in audioTracks {
-                let params = AVMutableAudioMixInputParameters(track: track)
-                params.setVolume(0.0, at: CMTime.zero)
-                inputParameters.append(params)
-            }
-            audioMix.inputParameters = inputParameters
-            playerItem.audioMix = audioMix
-        }
-    }
     
     // MARK: - Library Management
-    
+
     func loadLibrary() async {
-        // Load from database instead of scanning filesystem
+        print("[LIBRARY] Loading library videos...")
+        // Load from local storage
+        let libraryVideos = storage.getLibraryVideos()
         var entries: [VideoEntry] = []
-        
-        for libraryEntry in db.library {
-            let videoID = libraryEntry.id
-            
-            // Load thumbnail from database metadata or disk
-            var thumbnail = await loadLocalThumbnail(for: videoID)
-            
-            // Load download size from database metadata
-            var downloadSize: Int64? = nil
-            if let metadata = db.getVideoMetadata(videoId: videoID) {
-                downloadSize = metadata.downloadSize
-                // Also try to load thumbnail from metadata path if not already loaded
-                if thumbnail == nil, let thumbnailPath = metadata.thumbnailPath,
-                   FileManager.default.fileExists(atPath: thumbnailPath) {
-                    thumbnail = NSImage(contentsOfFile: thumbnailPath)
-                }
+
+        for video in libraryVideos {
+            // Load thumbnail from local storage
+            var thumbnail: NSImage? = nil
+            if let thumbnailPath = video.thumbnailPath, !thumbnailPath.isEmpty {
+                thumbnail = storage.loadThumbnail(videoId: video.id)
             }
-            
-            // Get video file from database (only permanent files)
-            let videoFiles = db.getVideoFiles(videoId: videoID, includeTemporary: false)
-            let videoFile = videoFiles.first { $0.fileType == "video" }
-            let videoURL = videoFile.map { URL(fileURLWithPath: $0.filePath) }
-            
-            // Verify file actually exists - sync database status if needed
-            var isDownloaded = libraryEntry.isDownloaded
-            if isDownloaded {
-                // If database says downloaded but file doesn't exist, update database
-                if let url = videoURL, !FileManager.default.fileExists(atPath: url.path) {
-                    isDownloaded = false
-                    db.updateLibraryEntry(id: videoID, isDownloaded: false)
-                }
-            } else {
-                // If database says not downloaded but file exists, update database
-                if let url = videoURL, FileManager.default.fileExists(atPath: url.path) {
-                    isDownloaded = true
-                    db.updateLibraryEntry(id: videoID, isDownloaded: true)
-                }
+
+            // Load video URL from download_path if downloaded
+            var videoURL: URL? = nil
+            if video.downloaded, let downloadPath = video.downloadPath,
+               FileManager.default.fileExists(atPath: downloadPath) {
+                videoURL = URL(fileURLWithPath: downloadPath)
             }
-            
+
             entries.append(VideoEntry(
-                id: videoID,
-                name: libraryEntry.title,
+                id: video.id,
+                name: video.title ?? video.id,
                 thumbnail: thumbnail,
                 videoURL: videoURL,
-                isDownloaded: isDownloaded,
+                isDownloaded: video.downloaded,
                 isDownloading: false,
-                downloadProgress: isDownloaded ? 1.0 : 0.0,
-                downloadSize: downloadSize
+                downloadProgress: 1.0,
+                downloadSize: video.downloadSize
             ))
         }
-        
+
         self.videoEntries = entries.sorted { $0.name < $1.name }
+        print("[LIBRARY] Loaded \(entries.count) videos into library")
     }
     
-    private func loadLocalThumbnail(for videoID: String) async -> NSImage? {
-        let path = thumbnailsDirectory.appendingPathComponent("\(videoID).jpg")
-        if FileManager.default.fileExists(atPath: path.path) {
-            return NSImage(contentsOf: path)
-        }
-        return nil
-    }
-    
-    private func saveThumbnail(_ image: NSImage, for videoID: String) {
-        let path = thumbnailsDirectory.appendingPathComponent("\(videoID).jpg")
-        if let tiffData = image.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiffData),
-           let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
-            try? jpegData.write(to: path)
-            
-            // Track thumbnail file in database
-            let fileSize = Int64(jpegData.count)
-            db.addVideoFile(
-                videoId: videoID,
-                filePath: path.path,
-                fileType: "thumbnail",
-                fileSize: fileSize,
-                isTemporary: false
-            )
-            
-            // Also save to video_metadata table
-            db.updateVideoMetadata(videoId: videoID, thumbnailPath: path.path)
-        }
-    }
-    
-    private func saveTitle(_ title: String, for videoID: String) {
-        let path = metadataDirectory.appendingPathComponent("\(videoID).txt")
-        if let data = title.data(using: .utf8) {
-            try? data.write(to: path)
-            
-            // Track metadata file in database
-            let fileSize = Int64(data.count)
-            db.addVideoFile(
-                videoId: videoID,
-                filePath: path.path,
-                fileType: "metadata",
-                fileSize: fileSize,
-                isTemporary: false
-            )
-            
-            // Also save to video_metadata table
-            db.updateVideoMetadata(videoId: videoID, title: title)
-        }
-    }
-    
-    func addVideo(youtubeURL: String) async {
-        guard let videoID = await MetadataService.shared.extractVideoID(from: youtubeURL) else {
+    func addVideo(from sourceURL: URL) async {
+        print("[LIBRARY] Adding video from local file: \(sourceURL.path)")
+        
+        // Generate unique ID from file name and timestamp
+        let videoID = UUID().uuidString
+        
+        // Check if file exists
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            print("[LIBRARY] ERROR: Source file does not exist: \(sourceURL.path)")
             return
         }
         
-        if videoEntries.contains(where: { $0.id == videoID }) {
+        // Get file size
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: sourceURL.path)[.size] as? Int64) ?? 0
+        
+        // Get file name without extension as title
+        let fileName = sourceURL.deletingPathExtension().lastPathComponent
+        
+        // Copy file to videos directory, preserving original extension
+        let fileExtension = sourceURL.pathExtension.isEmpty ? "mp4" : sourceURL.pathExtension
+        let destinationURL = videosDirectory.appendingPathComponent("\(videoID).\(fileExtension)")
+        
+        do {
+            // Ensure destination directory exists
+            try FileManager.default.createDirectory(at: videosDirectory, withIntermediateDirectories: true)
+            
+            // Copy file
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            print("[LIBRARY] Copied video to: \(destinationURL.path)")
+        } catch {
+            print("[LIBRARY] ERROR: Failed to copy file: \(error)")
             return
         }
         
-        // Check database first for metadata
-        var title: String?
-        var thumbnail: NSImage?
-        var downloadSize: Int64?
-        
-        if let metadata = db.getVideoMetadata(videoId: videoID) {
-            // Load from database
-            title = metadata.title
-            downloadSize = metadata.downloadSize
-            
-            // Load thumbnail from disk if path exists
-            if let thumbnailPath = metadata.thumbnailPath,
-               FileManager.default.fileExists(atPath: thumbnailPath) {
-                thumbnail = NSImage(contentsOfFile: thumbnailPath)
-            }
-        }
-        
-        // Fetch missing metadata from server
-        if title == nil || thumbnail == nil || downloadSize == nil {
-            var titleTask: Task<String?, Never>?
-            var thumbnailTask: Task<NSImage?, Never>?
-            var sizeTask: Task<Int64?, Never>?
-            
-            if title == nil {
-                titleTask = Task { await MetadataService.shared.fetchTitle(for: youtubeURL) }
-            }
-            if thumbnail == nil {
-                thumbnailTask = Task { await MetadataService.shared.fetchThumbnail(for: youtubeURL) }
-            }
-            if downloadSize == nil {
-                sizeTask = Task { await MetadataService.shared.fetchDownloadSize(for: youtubeURL) }
-            }
-            
-            if let task = titleTask {
-                title = await task.value
-            }
-            if let task = thumbnailTask {
-                thumbnail = await task.value
-            }
-            if let task = sizeTask {
-                downloadSize = await task.value
-            }
-        }
-        
-        let finalTitle = title ?? videoID
-        
-        // Create entry with metadata
+        // STEP 1: Immediately add video to library with placeholder
         let entry = VideoEntry(
             id: videoID,
-            name: finalTitle,
-            thumbnail: thumbnail,
-            isDownloaded: false,
-            downloadSize: downloadSize
+            name: fileName,
+            thumbnail: nil,
+            videoURL: destinationURL,
+            isDownloaded: true,
+            isDownloading: false,
+            downloadProgress: 1.0,
+            downloadSize: fileSize
         )
-        videoEntries.insert(entry, at: 0)
+        videoEntries.append(entry)
         
-        // Save metadata to database and disk
-        saveTitle(finalTitle, for: videoID)
-        if let thumb = thumbnail {
-            saveThumbnail(thumb, for: videoID)
+        // Save to local storage immediately
+        storage.saveVideo(
+            videoId: videoID,
+            title: fileName,
+            thumbnailPath: nil,
+            downloadSize: fileSize,
+            youtubeURL: nil,
+            addedToLibrary: true
+        )
+        storage.setDownloaded(videoId: videoID, path: destinationURL.path)
+        
+        print("[LIBRARY] Video added to library: \(videoID)")
+        
+        // STEP 2: Generate thumbnail in background
+        Task {
+            if let thumbnail = await generateThumbnail(from: destinationURL) {
+                // Save thumbnail to disk
+                if let thumbnailPath = self.storage.saveThumbnail(videoId: videoID, image: thumbnail) {
+                    self.storage.saveVideo(
+                        videoId: videoID,
+                        title: nil,
+                        thumbnailPath: thumbnailPath,
+                        downloadSize: nil,
+                        youtubeURL: nil,
+                        addedToLibrary: nil
+                    )
+                }
+                
+                // Update UI immediately
+                if let index = self.videoEntries.firstIndex(where: { $0.id == videoID }) {
+                    self.videoEntries[index].thumbnail = thumbnail
+                }
+                print("[LIBRARY] Thumbnail generated for: \(videoID)")
+            }
         }
+    }
+    
+    // Generate thumbnail from video file using AVFoundation
+    private func generateThumbnail(from videoURL: URL) async -> NSImage? {
+        let asset = AVAsset(url: videoURL)
         
-        // Save download size to metadata table (thumbnail and title are already saved by saveThumbnail/saveTitle)
-        if let size = downloadSize {
-            db.updateVideoMetadata(videoId: videoID, downloadSize: size)
+        // Create image generator
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+        imageGenerator.requestedTimeToleranceAfter = .zero
+        imageGenerator.requestedTimeToleranceBefore = .zero
+        
+        // Get thumbnail at 1 second (or start if video is shorter)
+        let duration = try? await asset.load(.duration)
+        let time = min(CMTime(seconds: 1.0, preferredTimescale: 600), duration ?? CMTime.zero)
+        
+        do {
+            let result = try await imageGenerator.image(at: time)
+            let cgImage = result.image
+            let size = NSSize(width: cgImage.width, height: cgImage.height)
+            return NSImage(cgImage: cgImage, size: size)
+        } catch {
+            print("[THUMBNAIL] ERROR: Failed to generate thumbnail: \(error)")
+            return nil
         }
-        
-        // Add to database
-        db.addToLibrary(id: videoID, title: finalTitle)
     }
     
     func isInLibrary(videoID: String) -> Bool {
-        db.isInLibrary(id: videoID) || videoEntries.contains { $0.id == videoID }
+        storage.isInLibrary(videoId: videoID)
     }
-    
+
     func renameEntry(_ entry: VideoEntry, newName: String) {
         guard let index = videoEntries.firstIndex(where: { $0.id == entry.id }) else { return }
         videoEntries[index].name = newName
-        saveTitle(newName, for: entry.id)
+
+        // Update title in local storage
+        if let video = storage.getVideo(videoId: entry.id) {
+            storage.saveVideo(
+                videoId: entry.id,
+                title: newName,
+                thumbnailPath: video.thumbnailPath,
+                downloadSize: video.downloadSize,
+                youtubeURL: video.youtubeURL,
+                addedToLibrary: video.addedToLibrary
+            )
+        }
     }
-    
+
     func deleteEntry(_ entry: VideoEntry) {
+        print("[LIBRARY] Deleting video entry: \(entry.id) - \(entry.name)")
+
         // Stop if playing
         if currentPlayingID == entry.id {
             stopWallpaper()
         }
-        
-        // Get all files from database and delete them
-        // This includes video files, thumbnails, metadata, and any temporary files
-        let allFiles = db.getVideoFiles(videoId: entry.id, includeTemporary: true)
-        
-        // Delete all tracked files from disk
-        for file in allFiles {
-            try? FileManager.default.removeItem(atPath: file.filePath)
-        }
-        
-        // Also delete thumbnail and metadata files directly (for backward compatibility)
-        let thumbPath = thumbnailsDirectory.appendingPathComponent("\(entry.id).jpg")
-        let titlePath = metadataDirectory.appendingPathComponent("\(entry.id).txt")
-        try? FileManager.default.removeItem(at: thumbPath)
-        try? FileManager.default.removeItem(at: titlePath)
-        
-        // Remove from database (this will also delete file records via CASCADE)
-        db.removeFromLibrary(id: entry.id)
-        
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.75)) {
-            videoEntries.removeAll { $0.id == entry.id }
+
+        // Remove from UI immediately
+        videoEntries.removeAll { $0.id == entry.id }
+
+        // Clean up files and storage in background
+        Task {
+            if let video = storage.getVideo(videoId: entry.id) {
+                // Delete video file
+                if let downloadPath = video.downloadPath {
+                    try? FileManager.default.removeItem(atPath: downloadPath)
+                }
+            }
+            storage.deleteVideo(videoId: entry.id)
+            print("[LIBRARY] Deleted: \(entry.id)")
         }
     }
     
-    // MARK: - Download & Playback
+    // MARK: - Playback
     
-    func downloadVideo(entry: VideoEntry) async -> Bool {
-        // Check database for existing video file first
-        let existingFiles = db.getVideoFiles(videoId: entry.id, includeTemporary: false)
-        if let videoFile = existingFiles.first(where: { $0.fileType == "video" }),
-           FileManager.default.fileExists(atPath: videoFile.filePath) {
-            // Already downloaded, update status
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                var updatedEntry = videoEntries[index]
-                updatedEntry.isDownloaded = true
-                updatedEntry.videoURL = URL(fileURLWithPath: videoFile.filePath)
-                videoEntries[index] = updatedEntry
-            }
-            db.updateLibraryEntry(id: entry.id, isDownloaded: true)
-            return true
+    // Simple function to set already-downloaded video as wallpaper
+    func setWallpaper(_ entry: VideoEntry) async {
+        print("[WALLPAPER] Setting wallpaper: \(entry.id)")
+
+        // Find the video file path
+        var videoPath: URL?
+
+        if let url = entry.videoURL, FileManager.default.fileExists(atPath: url.path) {
+            videoPath = url
+        } else if let video = storage.getVideo(videoId: entry.id),
+                  let downloadPath = video.downloadPath,
+                  FileManager.default.fileExists(atPath: downloadPath) {
+            videoPath = URL(fileURLWithPath: downloadPath)
         }
-        
-        // Otherwise, download first
-        let youtubeURL = "https://www.youtube.com/watch?v=\(entry.id)"
-        
-        // Update entry to show downloading state
-        if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-            var updatedEntry = videoEntries[index]
-            updatedEntry.isDownloading = true
-            updatedEntry.downloadProgress = 0.0
-            videoEntries[index] = updatedEntry
+
+        guard let path = videoPath else {
+            print("[WALLPAPER] ERROR: Video file not found")
+            return
         }
-        
-        // Track expected output file as temporary before download starts
-        let (formatID, height, _, _): (String, Int, Int, Int64?)
-        do {
-            (formatID, height, _, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
-        } catch {
-            print("Failed to fetch format: \(error)")
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                var updatedEntry = videoEntries[index]
-                updatedEntry.isDownloading = false
-                updatedEntry.downloadProgress = 0.0
-                videoEntries[index] = updatedEntry
-            }
-            return false
-        }
-        let outputPath = videosDirectory.appendingPathComponent("\(entry.id)_\(height)p.mp4")
-        
-        // Track the expected output file as temporary
-        db.addVideoFile(
-            videoId: entry.id,
-            filePath: outputPath.path,
-            fileType: "video",
-            fileSize: 0,
-            isTemporary: true
-        )
-        
-        do {
-            // Get initial files in directory to track temporary files created during download
-            let initialFiles = (try? FileManager.default.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)) ?? []
-            
-            let finalPath = try await DownloadService.shared.downloadVideo(
-                url: youtubeURL,
-                formatID: formatID,
-                outputURL: outputPath
-            ) { [weak self] progress in
-                Task { @MainActor [weak self] in
-                    if let index = self?.videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                        self?.videoEntries[index].downloadProgress = progress
-                    }
-                }
-            }
-            
-            // Get files after download to find temporary files
-            let finalFiles = (try? FileManager.default.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)) ?? []
-            let newFiles = finalFiles.filter { file in
-                !initialFiles.contains(file) && 
-                (file.lastPathComponent.contains(entry.id) || file.pathExtension == "webm" || file.pathExtension == "part")
-            }
-            
-            // Track any temporary files that were created
-            for tempFile in newFiles {
-                if tempFile.path != finalPath.path {
-                    let fileSize = (try? tempFile.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                    let fileType = tempFile.pathExtension == "webm" ? "video_temp" : "audio_temp"
-                    db.addVideoFile(
-                        videoId: entry.id,
-                        filePath: tempFile.path,
-                        fileType: fileType,
-                        fileSize: Int64(fileSize),
-                        isTemporary: true
-                    )
-                }
-            }
-            
-            // Verify final file exists and get its size
-            guard FileManager.default.fileExists(atPath: finalPath.path) else {
-                throw NSError(domain: "DownloadError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Final video file not found"])
-            }
-            
-            let fileSize = (try? finalPath.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            
-            // Mark final file as permanent (this will replace the temporary entry)
-            db.addVideoFile(
-                videoId: entry.id,
-                filePath: finalPath.path,
-                fileType: "video",
-                fileSize: Int64(fileSize),
-                isTemporary: false
-            )
-            
-            // Clean up temporary files from disk and database
-            db.deleteTemporaryFiles(videoId: entry.id)
-            
-            // Update entry with video URL and download status (replace entire entry to trigger SwiftUI update)
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                var updatedEntry = videoEntries[index]
-                updatedEntry.videoURL = finalPath
-                updatedEntry.isDownloaded = true
-                updatedEntry.isDownloading = false
-                updatedEntry.downloadProgress = 1.0
-                videoEntries[index] = updatedEntry
-            }
-            
-            // Update database
-            db.updateLibraryEntry(id: entry.id, isDownloaded: true, lastPlayedAt: Date())
-            
-            // Return success without auto-playing - let user decide
-            return true
-            
-        } catch {
-            print("Download error: \(error)")
-            
-            // Clean up any temporary files on error
-            db.deleteTemporaryFiles(videoId: entry.id)
-            
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                var updatedEntry = videoEntries[index]
-                updatedEntry.isDownloading = false
-                updatedEntry.downloadProgress = 0.0
-                videoEntries[index] = updatedEntry
-            }
-            return false
-        }
+
+        await playVideo(at: path, entryID: entry.id)
     }
-    
-    func downloadAndSetWallpaper(_ entry: VideoEntry) async {
-        // Check database for existing video file first
-        let existingFiles = db.getVideoFiles(videoId: entry.id, includeTemporary: false)
-        if let videoFile = existingFiles.first(where: { $0.fileType == "video" }),
-           FileManager.default.fileExists(atPath: videoFile.filePath) {
-            let videoURL = URL(fileURLWithPath: videoFile.filePath)
-            await playVideo(at: videoURL, entryID: entry.id)
-            
-            // Update database
-            db.updateLibraryEntry(id: entry.id, isDownloaded: true, lastPlayedAt: Date())
-            return
-        }
-        
-        // Otherwise, download first
-        let youtubeURL = "https://www.youtube.com/watch?v=\(entry.id)"
-        
-        // Update entry to show downloading state
-        if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-            videoEntries[index].isDownloading = true
-            videoEntries[index].downloadProgress = 0.0
-        }
-        
-        // Track expected output file as temporary before download starts
-        let (formatID, height, _, _): (String, Int, Int, Int64?)
-        do {
-            (formatID, height, _, _) = try await DownloadService.shared.fetchBestFormat(url: youtubeURL)
-        } catch {
-            print("Failed to fetch format: \(error)")
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].isDownloading = false
-                videoEntries[index].downloadProgress = 0.0
-            }
-            return
-        }
-        let outputPath = videosDirectory.appendingPathComponent("\(entry.id)_\(height)p.mp4")
-        
-        // Track the expected output file as temporary
-        db.addVideoFile(
-            videoId: entry.id,
-            filePath: outputPath.path,
-            fileType: "video",
-            fileSize: 0,
-            isTemporary: true
-        )
-        
-        do {
-            // Get initial files in directory to track temporary files created during download
-            let initialFiles = (try? FileManager.default.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)) ?? []
-            
-            let finalPath = try await DownloadService.shared.downloadVideo(
-                url: youtubeURL,
-                formatID: formatID,
-                outputURL: outputPath
-            ) { [weak self] progress in
-                Task { @MainActor [weak self] in
-                    if let index = self?.videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                        self?.videoEntries[index].downloadProgress = progress
-                    }
+
+    // Clear all videos from library
+    func clearLibrary() {
+        print("[LIBRARY] Clearing all videos...")
+        stopWallpaper()
+
+        // Delete all video files and thumbnails
+        for entry in videoEntries {
+            if let video = storage.getVideo(videoId: entry.id) {
+                if let downloadPath = video.downloadPath {
+                    try? FileManager.default.removeItem(atPath: downloadPath)
                 }
             }
-            
-            // Get files after download to find temporary files
-            let finalFiles = (try? FileManager.default.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)) ?? []
-            let newFiles = finalFiles.filter { file in
-                !initialFiles.contains(file) && 
-                (file.lastPathComponent.contains(entry.id) || file.pathExtension == "webm" || file.pathExtension == "part")
-            }
-            
-            // Track any temporary files that were created
-            for tempFile in newFiles {
-                if tempFile.path != finalPath.path {
-                    let fileSize = (try? tempFile.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                    let fileType = tempFile.pathExtension == "webm" ? "video_temp" : "audio_temp"
-                    db.addVideoFile(
-                        videoId: entry.id,
-                        filePath: tempFile.path,
-                        fileType: fileType,
-                        fileSize: Int64(fileSize),
-                        isTemporary: true
-                    )
-                }
-            }
-            
-            // Verify final file exists and get its size
-            guard FileManager.default.fileExists(atPath: finalPath.path) else {
-                throw NSError(domain: "DownloadError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Final video file not found"])
-            }
-            
-            let fileSize = (try? finalPath.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            
-            // Mark final file as permanent (this will replace the temporary entry)
-            db.addVideoFile(
-                videoId: entry.id,
-                filePath: finalPath.path,
-                fileType: "video",
-                fileSize: Int64(fileSize),
-                isTemporary: false
-            )
-            
-            // Clean up temporary files from disk and database
-            db.deleteTemporaryFiles(videoId: entry.id)
-            
-            // Update entry with video URL and download status (replace entire entry to trigger SwiftUI update)
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                var updatedEntry = videoEntries[index]
-                updatedEntry.videoURL = finalPath
-                updatedEntry.isDownloaded = true
-                updatedEntry.isDownloading = false
-                updatedEntry.downloadProgress = 1.0
-                videoEntries[index] = updatedEntry
-            }
-            
-            // Update database
-            db.updateLibraryEntry(id: entry.id, isDownloaded: true, lastPlayedAt: Date())
-            
-            // Return without auto-playing - let user decide
-            return
-            
-        } catch {
-            print("Download error: \(error)")
-            
-            // Clean up any temporary files on error
-            db.deleteTemporaryFiles(videoId: entry.id)
-            
-            if let index = videoEntries.firstIndex(where: { $0.id == entry.id }) {
-                videoEntries[index].isDownloading = false
-                videoEntries[index].downloadProgress = 0.0
-            }
+            storage.deleteVideo(videoId: entry.id)
         }
+
+        videoEntries.removeAll()
+        print("[LIBRARY] Library cleared")
     }
     
     private func playVideo(at url: URL, entryID: String) async {
+        print("[WALLPAPER] Attempting to play video: \(url.path)")
         guard FileManager.default.fileExists(atPath: url.path) else {
-            print("Video file not found: \(url.path)")
+            print("[WALLPAPER] ERROR: Video file not found: \(url.path)")
             return
         }
         
-        // Create or reuse desktop window (don't destroy it)
-        if desktopWindow == nil {
-            desktopWindow = DesktopWindow()
+        // Configure audio before playing
+        wallpaperPlayer.setAudioEnabled(audioEnabled)
+        print("[WALLPAPER] Audio enabled: \(audioEnabled)")
+        
+        // Use LiveWallpaperPlayer to play the video
+        do {
+            try await wallpaperPlayer.playVideo(at: url)
+            currentPlayingID = entryID
+            print("[WALLPAPER] Video wallpaper started successfully: \(url.lastPathComponent)")
+        } catch {
+            print("[WALLPAPER] ERROR: Failed to play video wallpaper: \(error.localizedDescription)")
         }
-        
-        // Stop old player observers but keep window alive
-        if let observer = loopObserver {
-            NotificationCenter.default.removeObserver(observer)
-            loopObserver = nil
-        }
-        
-        if let timeObserver = timeObserver {
-            player?.removeTimeObserver(timeObserver)
-            self.timeObserver = nil
-        }
-        
-        // Pause old player but don't clear it yet
-        let oldPlayer = player
-        oldPlayer?.pause()
-        
-        // Create new player
-        let newPlayer = AVPlayer(url: url)
-        newPlayer.actionAtItemEnd = .none
-        
-        // Configure audio based on setting
-        if audioEnabled {
-            newPlayer.isMuted = false
-            newPlayer.volume = 1.0
-        } else {
-            newPlayer.isMuted = true
-            newPlayer.volume = 0.0
-        }
-        
-        // Wait for new player to be ready before switching
-        await waitForPlayerReady(player: newPlayer)
-        
-        // Apply audio mix if audio is disabled
-        if !audioEnabled {
-            applySilentAudioMix(to: newPlayer)
-        }
-        
-        // Set up looping for new player
-        setupLoopObserver(for: newPlayer)
-        
-        // Switch to new player with fade transition
-        desktopWindow?.setPlayer(newPlayer, animated: true)
-        
-        // Store new player reference
-        self.player = newPlayer
-        
-        // Start playback
-        newPlayer.play()
-        currentPlayingID = entryID
-        
-        // Clear old player after transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // Old player can be cleared now
-        }
-        
-        print("Video wallpaper started: \(url.lastPathComponent)")
-    }
-    
-    private func waitForPlayerReady(player: AVPlayer) async {
-        // Wait for currentItem to exist
-        var attempts = 0
-        while player.currentItem == nil && attempts < 30 {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            attempts += 1
-        }
-        
-        guard let item = player.currentItem else {
-            print("Player item never appeared")
-            return
-        }
-        
-        // Wait for ready status
-        if item.status == .readyToPlay {
-            return
-        }
-        
-        // Poll for ready status
-        attempts = 0
-        while item.status != .readyToPlay && attempts < 30 {
-            if item.status == .failed {
-                print("Player item failed: \(item.error?.localizedDescription ?? "unknown")")
-                return
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            attempts += 1
-        }
-    }
-    
-    private func setupLoopObserver(for player: AVPlayer) {
-        // Remove existing observer
-        if let observer = loopObserver {
-            NotificationCenter.default.removeObserver(observer)
-            loopObserver = nil
-        }
-        
-        guard let item = player.currentItem else {
-            print("Cannot set up loop observer: no player item")
-            return
-        }
-        
-        // Set up new observer
-        let observer = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak player] _ in
-            guard let player = player else { return }
-            player.seek(to: .zero) { _ in
-                player.play()
-            }
-        }
-        
-        loopObserver = observer
     }
     
     func stopWallpaper() {
-        // Remove observers
-        if let observer = loopObserver {
-            NotificationCenter.default.removeObserver(observer)
-            loopObserver = nil
-        }
-        
-        if let timeObserver = timeObserver {
-            player?.removeTimeObserver(timeObserver)
-            self.timeObserver = nil
-        }
-        
-        // Stop player with fade out
-        desktopWindow?.setPlayer(nil, animated: true)
-        
-        // Clear after fade
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            self?.player?.pause()
-            self?.player = nil
-            self?.desktopWindow = nil
-            self?.currentPlayingID = nil
-        }
+        print("[WALLPAPER] Stopping wallpaper (current ID: \(currentPlayingID ?? "none"))")
+        wallpaperPlayer.stop()
+        currentPlayingID = nil
+        print("[WALLPAPER] Wallpaper stopped")
     }
 }
