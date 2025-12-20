@@ -114,18 +114,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             
             if let icon = menuBarIcon {
-                // Set as template so macOS can tint it for light/dark mode
+                // For menu bar icons, the size must be set in POINTS (18x18), not pixels
+                // Even though the file is 36x36 pixels (@2x), NSImage.size is in points
+                icon.size = NSSize(width: 18, height: 18)
                 icon.isTemplate = true
                 
-                // Ensure the icon has the correct size for menu bar (18x18 points)
-                // The actual pixel size should be 36x36 for @2x Retina
-                if icon.size.width != 18 || icon.size.height != 18 {
-                    icon.size = NSSize(width: 18, height: 18)
+                // Set the image on the button
+                button.image = icon
+                
+                // Ensure template property is set (sometimes needs to be set after assignment)
+                if let buttonImage = button.image {
+                    buttonImage.isTemplate = true
                 }
                 
-                // Set the image directly - NSStatusItem will handle the sizing
-                button.image = icon
-                print("[MENU] Menu bar icon set successfully (icon size: \(icon.size), representations: \(icon.representations.count))")
+                print("[MENU] Menu bar icon set (size: \(icon.size), template: \(icon.isTemplate))")
             } else {
                 print("[MENU] No custom menu bar icon found, using fallback")
                 if let image = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Live Wallpaper") {
