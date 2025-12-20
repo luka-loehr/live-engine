@@ -1204,11 +1204,18 @@ struct ExploreVideoCard: View {
                                         .foregroundColor(isHoveringAdd ? Color(red: 0.5, green: 0.6, blue: 1.0) : .white)
                                         .opacity((justAdded || isInLibrary) ? 0 : 1)
 
-                                    // Checkmark icon - instant appearance
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 22))
-                                        .foregroundColor(.green)
-                                        .opacity((justAdded || isInLibrary) ? 1.0 : 0.0)
+                                    // Checkmark - solid background with icon
+                                    if justAdded || isInLibrary {
+                                        ZStack {
+                                            Circle()
+                                                .fill(Color.green)
+                                                .frame(width: 24, height: 24)
+
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 14, weight: .bold))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
                                 }
                                 .shadow(color: (justAdded || isInLibrary) ? .green.opacity(0.5) : .black.opacity(0.3), radius: 2, y: 1)
                                 .animation(nil, value: justAdded || isInLibrary)
