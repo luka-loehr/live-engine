@@ -108,7 +108,7 @@ class VideoWallpaperManager: ObservableObject {
             // to ensure it launches immediately on login before default wallpaper appears
             let plist: [String: Any] = [
                 "Label": launchAgentLabel,
-                "ProgramArguments": [executablePath],
+                "ProgramArguments": [executablePath, "--launchagent"], // Pass flag to indicate LaunchAgent launch
                 "RunAtLoad": true,
                 "KeepAlive": false, // Don't restart if it crashes, but allow normal termination
                 "LimitLoadToSessionType": "Aqua", // Ensure it runs in GUI session

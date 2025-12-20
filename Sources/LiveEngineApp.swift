@@ -36,6 +36,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             object: nil
         )
         
+        // Detect if app was launched via LaunchAgent or manually
+        let isLaunchAgentLaunch = detectLaunchAgentLaunch()
+        
         // Initialize main window
         if MainWindow.shared == nil {
             MainWindow.shared = MainWindow(wallpaperManager: wallpaperManager)
@@ -72,16 +75,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             createMenu()
         }
 
-        // Set activation policy to accessory (menu bar only, no dock icon)
-        NSApp.setActivationPolicy(.accessory)
-
         // Test LiveWallpaperPlayer if test video exists and --test flag is passed
         if CommandLine.arguments.contains("--test") {
             testLiveWallpaperPlayer()
         }
 
-        // Don't automatically show main window on launch - only show menu bar icon
-        // User can open Library or Settings from the menu bar if needed
+        if isLaunchAgentLaunch {
+            // Launched via LaunchAgent: menu bar only, no UI
+            NSApp.setActivationPolicy(.accessory)
+            print("[LAUNCH] Detected LaunchAgent launch - showing menu bar icon only")
+        } else {
+            // Manual launch: show UI library + menu bar icon
+            NSApp.setActivationPolicy(.regular)
+            // Show main window after a short delay to ensure everything is initialized
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                MainWindow.shared?.show()
+                NotificationCenter.default.post(name: NSNotification.Name("ShowLibrary"), object: nil)
+            }
+            print("[LAUNCH] Detected manual launch - showing UI library")
+        }
+    }
+    
+    /// Detect if the app was launched via LaunchAgent by checking command-line arguments
+    private func detectLaunchAgentLaunch() -> Bool {
+        // LaunchAgent passes --launchagent flag, manual launches don't
+        return CommandLine.arguments.contains("--launchagent")
     }
     
     @objc func updateMenuItems() {
