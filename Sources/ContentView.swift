@@ -325,27 +325,37 @@ struct AddWallpaperCard: View {
     
     private func openFilePicker() {
         let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [UTType.mpeg4Movie, UTType.movie, UTType.quickTimeMovie]
         panel.allowsOtherFileTypes = true
-        panel.message = "Select a video file to add to your library"
+        panel.message = "Select video files to add to your library"
         
         panel.begin { response in
-            if response == .OK, let url = panel.url {
-                // Verify it's a video file
-                let pathExtension = url.pathExtension.lowercased()
+            if response == .OK {
                 let videoExtensions = ["mp4", "mov", "m4v", "avi", "mkv", "webm"]
+                var validURLs: [URL] = []
                 
-                guard videoExtensions.contains(pathExtension) else {
-                    print("[FILE PICKER] Invalid file type: \(pathExtension)")
-                    return
+                // Process all selected files
+                for url in panel.urls {
+                    let pathExtension = url.pathExtension.lowercased()
+                    
+                    if videoExtensions.contains(pathExtension) {
+                        validURLs.append(url)
+                    } else {
+                        print("[FILE PICKER] Invalid file type: \(pathExtension)")
+                    }
                 }
                 
-                Task {
-                    await wallpaperManager.addVideo(from: url)
-                    onAdded()
+                // Add all valid videos to library
+                if !validURLs.isEmpty {
+                    Task {
+                        for url in validURLs {
+                            await wallpaperManager.addVideo(from: url)
+                        }
+                        onAdded()
+                    }
                 }
             }
         }
