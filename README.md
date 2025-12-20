@@ -93,3 +93,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## Credits
 
 - Inspired by [Plash](https://github.com/sindresorhus/Plash) for the desktop window technique
+
