@@ -50,7 +50,7 @@ class VideoWallpaperManager: ObservableObject {
         try? FileManager.default.createDirectory(at: videosDirectory, withIntermediateDirectories: true)
         print("[VIDEO] Directories initialized: thumbnails=\(thumbnailsDirectory.path), videos=\(videosDirectory.path)")
 
-        Task {
+        Task { @MainActor in
             await loadLibrary()
             // Restore last wallpaper if auto start is enabled
             await restoreLastWallpaperIfNeeded()
@@ -58,8 +58,8 @@ class VideoWallpaperManager: ObservableObject {
             // Mark initialization as complete
             isInitializing = false
             
-            // Update login item status based on current setting (after init)
-            updateLoginItem()
+            // Don't update login items during init - only when user changes setting
+            // Login items will be synced when user toggles the setting
         }
     }
     
