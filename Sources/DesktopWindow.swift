@@ -10,6 +10,7 @@ final class VideoLayerView: NSView {
     override func makeBackingLayer() -> CALayer {
         let layer = AVPlayerLayer()
         layer.videoGravity = .resizeAspectFill
+        layer.opacity = 0.0  // Start transparent for fade-in
         return layer
     }
     
@@ -20,6 +21,56 @@ final class VideoLayerView: NSView {
     func setPlayer(_ player: AVPlayer?) {
         playerLayer?.player = player
     }
+    
+    func fadeIn(duration: TimeInterval, completion: (() -> Void)? = nil) {
+        guard let layer = playerLayer else {
+            completion?()
+            return
+        }
+        
+        // Create fade-in animation
+        let fadeAnimation = CABasicAnimation(keyPath: "opacity")
+        fadeAnimation.fromValue = 0.0
+        fadeAnimation.toValue = 1.0
+        fadeAnimation.duration = duration
+        fadeAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        fadeAnimation.fillMode = .forwards
+        fadeAnimation.isRemovedOnCompletion = false
+        
+        // Set final opacity value
+        layer.opacity = 1.0
+        
+        // Add animation
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        layer.add(fadeAnimation, forKey: "fadeIn")
+        CATransaction.commit()
+    }
+    
+    func fadeOut(duration: TimeInterval, completion: (() -> Void)? = nil) {
+        guard let layer = playerLayer else {
+            completion?()
+            return
+        }
+        
+        // Create fade-out animation
+        let fadeAnimation = CABasicAnimation(keyPath: "opacity")
+        fadeAnimation.fromValue = layer.opacity
+        fadeAnimation.toValue = 0.0
+        fadeAnimation.duration = duration
+        fadeAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        fadeAnimation.fillMode = .forwards
+        fadeAnimation.isRemovedOnCompletion = false
+        
+        // Set final opacity value
+        layer.opacity = 0.0
+        
+        // Add animation
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        layer.add(fadeAnimation, forKey: "fadeOut")
+        CATransaction.commit()
+    }
 }
 
 final class DesktopWindow: NSWindow {
@@ -27,7 +78,6 @@ final class DesktopWindow: NSWindow {
     override var canBecomeMain: Bool { false }
     
     private var videoLayerView: VideoLayerView?
-    private var fadeOverlay: NSView?
     private var animationGeneration: Int = 0  // Track animation generation to ignore stale callbacks
     private let targetScreen: NSScreen
     
@@ -68,15 +118,6 @@ final class DesktopWindow: NSWindow {
         contentView?.addSubview(view)
         videoLayerView = view
         
-        // Create fade overlay for smooth transitions
-        let overlay = NSView(frame: contentView?.bounds ?? .zero)
-        overlay.wantsLayer = true
-        overlay.layer?.backgroundColor = NSColor.black.cgColor
-        overlay.alphaValue = 0.0
-        overlay.autoresizingMask = [.width, .height]
-        contentView?.addSubview(overlay)
-        fadeOverlay = overlay
-        
         // Make window visible and order it back
         orderBack(nil)
         isReleasedWhenClosed = false
@@ -103,56 +144,45 @@ final class DesktopWindow: NSWindow {
         animationGeneration += 1
         let currentGeneration = animationGeneration
         
+        guard let videoView = videoLayerView else { return }
+        
         if player == nil {
-            // Stopping - hide the window
+            // Stopping - fade out and hide the window
             if animated {
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = 0.3
-                    fadeOverlay?.animator().alphaValue = 1.0
-                }) { [weak self] in
+                videoView.fadeOut(duration: 0.3) { [weak self] in
                     // Only proceed if this is still the current animation
                     guard let self = self, self.animationGeneration == currentGeneration else { return }
                     self.videoLayerView?.setPlayer(nil)
                     self.orderOut(nil) // Hide window
-                    self.fadeOverlay?.alphaValue = 0.0
                 }
             } else {
-                videoLayerView?.setPlayer(nil)
+                videoView.playerLayer?.opacity = 0.0
+                videoView.setPlayer(nil)
                 orderOut(nil) // Hide window
             }
-        } else if animated && videoLayerView?.playerLayer?.player != nil {
+        } else if animated && videoView.playerLayer?.player != nil {
             // Fade transition: fade out old, switch player, fade in new (1 second fade-in)
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.3
-                fadeOverlay?.animator().alphaValue = 1.0
-            }) { [weak self] in
+            videoView.fadeOut(duration: 0.3) { [weak self] in
                 guard let self = self, self.animationGeneration == currentGeneration else { return }
+                // Reset opacity to 0 before setting new player
+                self.videoLayerView?.playerLayer?.opacity = 0.0
                 self.videoLayerView?.setPlayer(player)
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = 1.0  // 1 second fade-in
-                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    self.fadeOverlay?.animator().alphaValue = 0.0
-                })
+                self.orderBack(nil)
+                // Fade in new video - 1 second
+                self.videoLayerView?.fadeIn(duration: 1.0)
             }
-            orderBack(nil)
         } else if animated {
-            // Fade in from black - 1 second duration
-            // Set overlay to fully opaque BEFORE setting player and showing window
-            fadeOverlay?.alphaValue = 1.0
-            // Set the player while overlay is covering it
-            videoLayerView?.setPlayer(player)
-            // Now show the window (player is hidden behind black overlay)
+            // First play with animation - fade in video from transparent
+            // Start with opacity 0
+            videoView.playerLayer?.opacity = 0.0
+            videoView.setPlayer(player)
             orderBack(nil)
-            // Start fade-in animation - exactly 1 second
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 1.0
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                fadeOverlay?.animator().alphaValue = 0.0
-            })
+            // Fade in video - exactly 1 second
+            videoView.fadeIn(duration: 1.0)
         } else {
             // Instant switch (no animation)
-            videoLayerView?.setPlayer(player)
-            fadeOverlay?.alphaValue = 0.0
+            videoView.playerLayer?.opacity = 1.0
+            videoView.setPlayer(player)
             orderBack(nil)
         }
     }
