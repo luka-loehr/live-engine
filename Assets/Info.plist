@@ -5,9 +5,9 @@
     <key>CFBundleExecutable</key>
     <string>LiveEngine</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.LiveEngine</string>
+    <string>com.liveengine.app</string>
     <key>CFBundleName</key>
-    <string>Live Engine</string>
+    <string>live-engine</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>

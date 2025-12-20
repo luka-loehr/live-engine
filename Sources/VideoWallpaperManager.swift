@@ -78,7 +78,9 @@ class VideoWallpaperManager: ObservableObject {
         
         let appURL = Bundle.main.bundleURL
         let appBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.liveengine.app"
-        let launchAgentName = "\(appBundleIdentifier).plist"
+        // Use a more readable label name for the launch agent
+        let launchAgentLabel = "\(appBundleIdentifier).launchagent"
+        let launchAgentName = "\(launchAgentLabel).plist"
         
         // Get LaunchAgents directory
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -87,21 +89,73 @@ class VideoWallpaperManager: ObservableObject {
         
         let fileManager = FileManager.default
         
+        // Get the executable path - if running as a bundle, use Contents/MacOS/executable, otherwise use the bundle URL
+        let executablePath: String
+        if appURL.pathExtension == "app" {
+            // Running as a proper app bundle
+            let executableName = Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String ?? "LiveEngine"
+            executablePath = appURL.appendingPathComponent("Contents/MacOS/\(executableName)").path
+        } else {
+            // Running as a standalone executable (debug mode)
+            executablePath = Bundle.main.executableURL?.path ?? appURL.path
+        }
+        
         if autoStartOnLaunch {
             // Create LaunchAgents directory if it doesn't exist
             try? fileManager.createDirectory(at: launchAgentsURL, withIntermediateDirectories: true)
             
             // Create LaunchAgent plist
             let plist: [String: Any] = [
-                "Label": appBundleIdentifier,
-                "ProgramArguments": [appURL.path],
-                "RunAtLoad": true
+                "Label": launchAgentLabel,
+                "ProgramArguments": [executablePath],
+                "RunAtLoad": true,
+                "KeepAlive": false, // Don't restart if it crashes, but allow normal termination
+                "StandardOutPath": "/tmp/\(launchAgentLabel).out.log",
+                "StandardErrorPath": "/tmp/\(launchAgentLabel).err.log"
             ]
             
             if let plistData = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) {
                 do {
                     try plistData.write(to: launchAgentURL)
                     print("[SETTINGS] Created LaunchAgent: \(launchAgentURL.path)")
+                    
+                    // Unload existing agent first if it exists (to update it)
+                    let unloadProcess = Process()
+                    unloadProcess.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                    if #available(macOS 10.15, *) {
+                        let userID = getuid()
+                        unloadProcess.arguments = ["bootout", "gui/\(userID)/\(launchAgentLabel)"]
+                    } else {
+                        unloadProcess.arguments = ["unload", launchAgentURL.path]
+                    }
+                    try? unloadProcess.run()
+                    unloadProcess.waitUntilExit()
+                    
+                    // Load the LaunchAgent using launchctl bootstrap (modern API)
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                    // Use bootstrap for modern macOS, fallback to load for older versions
+                    if #available(macOS 10.15, *) {
+                        // Get current user ID
+                        let userID = getuid()
+                        process.arguments = ["bootstrap", "gui/\(userID)", launchAgentURL.path]
+                    } else {
+                        process.arguments = ["load", launchAgentURL.path]
+                    }
+                    
+                    do {
+                        try process.run()
+                        process.waitUntilExit()
+                        if process.terminationStatus == 0 {
+                            print("[SETTINGS] Successfully loaded LaunchAgent: \(launchAgentLabel)")
+                        } else {
+                            let errorData = try? Data(contentsOf: URL(fileURLWithPath: "/tmp/\(launchAgentLabel).err.log"))
+                            let errorString = errorData.flatMap { String(data: $0, encoding: .utf8) } ?? "unknown"
+                            print("[SETTINGS] Failed to load LaunchAgent (exit code: \(process.terminationStatus)): \(errorString)")
+                        }
+                    } catch {
+                        print("[SETTINGS] Failed to execute launchctl: \(error)")
+                    }
                 } catch {
                     print("[SETTINGS] Failed to write LaunchAgent file: \(error)")
                 }
@@ -109,8 +163,30 @@ class VideoWallpaperManager: ObservableObject {
                 print("[SETTINGS] Failed to serialize LaunchAgent plist")
             }
         } else {
-            // Remove LaunchAgent plist
+            // Unload the LaunchAgent first (if it's currently loaded)
             if fileManager.fileExists(atPath: launchAgentURL.path) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                    // Use bootout for modern macOS, fallback to unload for older versions
+                    let launchAgentLabel = "\(appBundleIdentifier).launchagent"
+                    if #available(macOS 10.15, *) {
+                        // Get current user ID
+                        let userID = getuid()
+                        process.arguments = ["bootout", "gui/\(userID)/\(launchAgentLabel)"]
+                    } else {
+                        process.arguments = ["unload", launchAgentURL.path]
+                    }
+                
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    // Don't fail if unload fails (it might not be loaded)
+                    print("[SETTINGS] Unloaded LaunchAgent (exit code: \(process.terminationStatus))")
+                } catch {
+                    print("[SETTINGS] Failed to execute launchctl: \(error)")
+                }
+                
+                // Remove LaunchAgent plist
                 do {
                     try fileManager.removeItem(at: launchAgentURL)
                     print("[SETTINGS] Removed LaunchAgent: \(launchAgentURL.path)")
@@ -430,6 +506,9 @@ class VideoWallpaperManager: ObservableObject {
     
     // Restore last wallpaper if auto start is enabled
     func restoreLastWallpaperIfNeeded() async {
+        print("[WALLPAPER] Checking if wallpaper restoration is needed...")
+        print("[WALLPAPER] autoStartOnLaunch: \(autoStartOnLaunch)")
+        
         guard autoStartOnLaunch else {
             print("[WALLPAPER] Auto start disabled, skipping wallpaper restoration")
             return
@@ -440,9 +519,23 @@ class VideoWallpaperManager: ObservableObject {
             return
         }
         
+        print("[WALLPAPER] Last wallpaper ID: \(lastWallpaperID)")
+        print("[WALLPAPER] Video entries count: \(videoEntries.count)")
+        
         // Find the entry with the last wallpaper ID
         guard let entry = videoEntries.first(where: { $0.id == lastWallpaperID }) else {
-            print("[WALLPAPER] Last wallpaper entry not found: \(lastWallpaperID)")
+            print("[WALLPAPER] Last wallpaper entry not found in library: \(lastWallpaperID)")
+            // Try to load from storage directly
+            if let video = storage.getVideo(videoId: lastWallpaperID),
+               let downloadPath = video.downloadPath,
+               FileManager.default.fileExists(atPath: downloadPath) {
+                print("[WALLPAPER] Found wallpaper in storage, restoring directly...")
+                let videoURL = URL(fileURLWithPath: downloadPath)
+                await playVideo(at: videoURL, entryID: lastWallpaperID)
+                return
+            }
+            print("[WALLPAPER] Could not find wallpaper file, clearing saved ID")
+            storage.setLastWallpaperID(nil)
             return
         }
         
@@ -450,10 +543,12 @@ class VideoWallpaperManager: ObservableObject {
         var videoPath: URL?
         if let url = entry.videoURL, FileManager.default.fileExists(atPath: url.path) {
             videoPath = url
+            print("[WALLPAPER] Found video at entry URL: \(url.path)")
         } else if let video = storage.getVideo(videoId: entry.id),
                   let downloadPath = video.downloadPath,
                   FileManager.default.fileExists(atPath: downloadPath) {
             videoPath = URL(fileURLWithPath: downloadPath)
+            print("[WALLPAPER] Found video at storage path: \(downloadPath)")
         }
         
         guard let path = videoPath else {
@@ -462,7 +557,7 @@ class VideoWallpaperManager: ObservableObject {
             return
         }
         
-        print("[WALLPAPER] Restoring last wallpaper: \(entry.name)")
+        print("[WALLPAPER] Restoring last wallpaper: \(entry.name) at \(path.path)")
         await playVideo(at: path, entryID: entry.id)
     }
 }
