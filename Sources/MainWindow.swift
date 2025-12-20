@@ -40,6 +40,14 @@ class MainWindow: NSWindow, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Hide window instead of closing it
         orderOut(nil)
+        // Notify that window was hidden so we can switch back to accessory mode
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowHidden"), object: nil)
         return false
+    }
+    
+    override func orderOut(_ sender: Any?) {
+        super.orderOut(sender)
+        // Notify that window was hidden so we can switch back to accessory mode
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowHidden"), object: nil)
     }
 }

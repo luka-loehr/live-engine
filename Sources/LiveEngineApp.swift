@@ -28,6 +28,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             object: nil
         )
         
+        // Observe when main window is hidden to switch back to accessory mode
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mainWindowHidden),
+            name: NSNotification.Name("MainWindowHidden"),
+            object: nil
+        )
+        
         // Initialize main window
         if MainWindow.shared == nil {
             MainWindow.shared = MainWindow(wallpaperManager: wallpaperManager)
@@ -64,22 +72,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             createMenu()
         }
 
-        // Show dock icon since we're now a windowed app
-        NSApp.setActivationPolicy(.regular)
+        // Set activation policy to accessory (menu bar only, no dock icon)
+        NSApp.setActivationPolicy(.accessory)
 
         // Test LiveWallpaperPlayer if test video exists and --test flag is passed
         if CommandLine.arguments.contains("--test") {
             testLiveWallpaperPlayer()
         }
 
-        // Show main window on launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            MainWindow.shared?.show()
-        }
+        // Don't automatically show main window on launch - only show menu bar icon
+        // User can open Library or Settings from the menu bar if needed
     }
     
     @objc func updateMenuItems() {
         // Menu items will be updated when menu is shown
+    }
+    
+    @objc func mainWindowHidden() {
+        // Switch back to accessory mode (menu bar only) when window is hidden
+        NSApp.setActivationPolicy(.accessory)
     }
     
     @MainActor
@@ -152,6 +163,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     @objc func showMainWindow() {
+        // Temporarily switch to regular activation policy to allow window activation
+        NSApp.setActivationPolicy(.regular)
         MainWindow.shared?.show()
         // Post notification to show library (close settings if open)
         NotificationCenter.default.post(name: NSNotification.Name("ShowLibrary"), object: nil)
@@ -213,6 +226,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     @objc func showSettings() {
+        // Temporarily switch to regular activation policy to allow window activation
+        NSApp.setActivationPolicy(.regular)
         // Show main window and trigger settings view
         MainWindow.shared?.show()
         // Post notification to show settings in main window
