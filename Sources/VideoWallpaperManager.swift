@@ -20,9 +20,14 @@ class VideoWallpaperManager: ObservableObject {
     @Published var autoStartOnLaunch: Bool {
         didSet {
             LocalStorageService.shared.updateSettings { $0.autoStartOnLaunch = autoStartOnLaunch }
-            updateLoginItem()
+            // Only update login items if this is a user-initiated change (not during init)
+            if !isInitializing {
+                updateLoginItem()
+            }
         }
     }
+    
+    private var isInitializing = true
 
     private let thumbnailsDirectory: URL
     private let videosDirectory: URL
@@ -49,7 +54,11 @@ class VideoWallpaperManager: ObservableObject {
             await loadLibrary()
             // Restore last wallpaper if auto start is enabled
             await restoreLastWallpaperIfNeeded()
-            // Update login item status based on current setting
+            
+            // Mark initialization as complete
+            isInitializing = false
+            
+            // Update login item status based on current setting (after init)
             updateLoginItem()
         }
     }
@@ -62,6 +71,14 @@ class VideoWallpaperManager: ObservableObject {
     private func updateLoginItem() {
         // Add or remove app from login items based on autoStartOnLaunch setting
         // Note: Uses deprecated API but it still works on modern macOS
+        // Ensure we're on the main thread
+        guard Thread.isMainThread else {
+            Task { @MainActor in
+                updateLoginItem()
+            }
+            return
+        }
+        
         let appURL = Bundle.main.bundleURL
         let appURLRef = appURL as CFURL
         
