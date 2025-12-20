@@ -104,12 +104,16 @@ class VideoWallpaperManager: ObservableObject {
             // Create LaunchAgents directory if it doesn't exist
             try? fileManager.createDirectory(at: launchAgentsURL, withIntermediateDirectories: true)
             
-            // Create LaunchAgent plist
+            // Create LaunchAgent plist with high priority settings
+            // to ensure it launches immediately on login before default wallpaper appears
             let plist: [String: Any] = [
                 "Label": launchAgentLabel,
                 "ProgramArguments": [executablePath],
                 "RunAtLoad": true,
                 "KeepAlive": false, // Don't restart if it crashes, but allow normal termination
+                "LimitLoadToSessionType": "Aqua", // Ensure it runs in GUI session
+                "ProcessType": "Interactive", // Higher priority than Background processes
+                "Nice": -10, // Higher priority (lower nice value = higher priority, range -20 to 19)
                 "StandardOutPath": "/tmp/\(launchAgentLabel).out.log",
                 "StandardErrorPath": "/tmp/\(launchAgentLabel).err.log"
             ]
