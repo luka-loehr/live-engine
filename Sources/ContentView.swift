@@ -1211,6 +1211,7 @@ struct ExploreVideoCard: View {
                                         .opacity((justAdded || isInLibrary) ? 1.0 : 0.0)
                                 }
                                 .shadow(color: (justAdded || isInLibrary) ? .green.opacity(0.5) : .black.opacity(0.3), radius: 2, y: 1)
+                                .animation(nil, value: justAdded || isInLibrary)
                             }
                             .buttonStyle(.plain)
                             .disabled(justAdded || isInLibrary)
