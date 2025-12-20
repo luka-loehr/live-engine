@@ -328,13 +328,15 @@ class VideoWallpaperManager: ObservableObject {
             return
         }
         
-        // Configure audio before playing
+        // Configure audio before playing - this sets the internal state
         wallpaperPlayer.setAudioEnabled(audioEnabled)
         print("[WALLPAPER] Audio enabled: \(audioEnabled)")
         
         // Use LiveWallpaperPlayer to play the video
         do {
             try await wallpaperPlayer.playVideo(at: url)
+            // Ensure audio setting is applied after player is created
+            wallpaperPlayer.setAudioEnabled(audioEnabled)
             currentPlayingID = entryID
             // Save last wallpaper ID
             storage.setLastWallpaperID(entryID)

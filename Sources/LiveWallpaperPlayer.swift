@@ -10,6 +10,7 @@ class LiveWallpaperPlayer: ObservableObject {
     private var player: AVPlayer?
     private var loopObserver: NSObjectProtocol?
     private var screenChangeObserver: NSObjectProtocol?
+    private var audioEnabled: Bool = false
     
     init() {
         // Listen for screen configuration changes
@@ -58,9 +59,12 @@ class LiveWallpaperPlayer: ObservableObject {
         let newPlayer = AVPlayer(url: videoURL)
         newPlayer.actionAtItemEnd = .none
         
-        // Mute audio by default (wallpaper typically shouldn't have sound)
-        newPlayer.isMuted = true
-        newPlayer.volume = 0.0
+        // Store player reference early so audio settings can be applied
+        self.player = newPlayer
+        
+        // Apply current audio settings immediately
+        newPlayer.isMuted = !audioEnabled
+        newPlayer.volume = audioEnabled ? 1.0 : 0.0
         
         // Wait for player to be ready
         await waitForPlayerReady(player: newPlayer)
@@ -76,9 +80,6 @@ class LiveWallpaperPlayer: ObservableObject {
         for (_, window) in desktopWindows {
             window.setPlayer(newPlayer, animated: true)
         }
-        
-        // Store player reference
-        self.player = newPlayer
         
         // Start playback after a short delay to allow fade-in to begin
         // This ensures the first frame is hidden behind the fade overlay
@@ -112,8 +113,14 @@ class LiveWallpaperPlayer: ObservableObject {
     /// Sets whether audio should be enabled
     /// - Parameter enabled: Whether audio should play
     func setAudioEnabled(_ enabled: Bool) {
-        player?.isMuted = !enabled
-        player?.volume = enabled ? 1.0 : 0.0
+        audioEnabled = enabled
+        if let player = player {
+            player.isMuted = !enabled
+            player.volume = enabled ? 1.0 : 0.0
+            print("[PLAYER] Audio \(enabled ? "enabled" : "disabled") - muted: \(player.isMuted), volume: \(player.volume)")
+        } else {
+            print("[PLAYER] Audio setting saved (\(enabled ? "enabled" : "disabled")) but no player active yet")
+        }
     }
     
     // MARK: - Private Helpers
