@@ -53,15 +53,64 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var menuBarIcon: NSImage? = nil
             
             // Try menu bar specific icon files (in order of preference)
+            // First try bundle resources (for built app)
             if let iconPath = Bundle.main.path(forResource: "MenuBarIcon", ofType: "pdf"),
                let icon = NSImage(contentsOfFile: iconPath) {
                 menuBarIcon = icon
+                print("[MENU] Loaded MenuBarIcon.pdf from bundle")
             } else if let iconPath = Bundle.main.path(forResource: "MenuBarIcon", ofType: "png"),
                       let icon = NSImage(contentsOfFile: iconPath) {
                 menuBarIcon = icon
+                print("[MENU] Loaded MenuBarIcon.png from bundle")
             } else if let iconPath = Bundle.main.path(forResource: "menu-bar-icon", ofType: "png"),
                       let icon = NSImage(contentsOfFile: iconPath) {
                 menuBarIcon = icon
+                print("[MENU] Loaded menu-bar-icon.png from bundle")
+            }
+            
+            // Fallback: Try source directory (for swift run / debug mode)
+            if menuBarIcon == nil {
+                // Try to find project root by looking for Package.swift
+                let fileManager = FileManager.default
+                var projectRoot: String? = nil
+                
+                // Start from executable path and walk up to find Package.swift
+                if let executablePath = Bundle.main.executablePath {
+                    var currentPath = (executablePath as NSString).deletingLastPathComponent
+                    for _ in 0..<10 { // Limit search depth
+                        let packagePath = (currentPath as NSString).appendingPathComponent("Package.swift")
+                        if fileManager.fileExists(atPath: packagePath) {
+                            projectRoot = currentPath
+                            break
+                        }
+                        let parent = (currentPath as NSString).deletingLastPathComponent
+                        if parent == currentPath { break } // Reached root
+                        currentPath = parent
+                    }
+                }
+                
+                // Also try current directory
+                if projectRoot == nil {
+                    projectRoot = fileManager.currentDirectoryPath
+                }
+                
+                if let root = projectRoot {
+                    let possiblePaths = [
+                        "Assets/Icons/MenuBarIcon.pdf",
+                        "Assets/Icons/MenuBarIcon.png",
+                        "Assets/Icons/menu-bar-icon.png"
+                    ]
+                    
+                    for relativePath in possiblePaths {
+                        let fullPath = (root as NSString).appendingPathComponent(relativePath)
+                        if fileManager.fileExists(atPath: fullPath),
+                           let icon = NSImage(contentsOfFile: fullPath) {
+                            menuBarIcon = icon
+                            print("[MENU] Loaded \(relativePath) from project root: \(root)")
+                            break
+                        }
+                    }
+                }
             }
             
             if let icon = menuBarIcon {
@@ -70,13 +119,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Ensure proper size for menu bar (18x18 or 22x22 points)
                 icon.size = NSSize(width: 18, height: 18)
                 button.image = icon
-            } else if let image = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Live Wallpaper") {
-                // Fallback to SF Symbol
-                image.isTemplate = true
-                button.image = image
+                print("[MENU] Menu bar icon set successfully")
             } else {
-                // Final fallback to text
-                button.title = "▶"
+                print("[MENU] No custom menu bar icon found, using fallback")
+                if let image = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Live Wallpaper") {
+                    // Fallback to SF Symbol
+                    image.isTemplate = true
+                    button.image = image
+                } else {
+                    // Final fallback to text
+                    button.title = "▶"
+                }
             }
             button.target = self
             button.action = #selector(showMenu)
