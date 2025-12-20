@@ -1,12 +1,33 @@
 import AppKit
-import AVKit
+import AVFoundation
 import MediaPlayer
+
+/// Custom view that uses AVPlayerLayer directly (not AVPlayerView) to avoid macOS Media Center registration
+final class VideoLayerView: NSView {
+    var playerLayer: AVPlayerLayer? {
+        return layer as? AVPlayerLayer
+    }
+    
+    override func makeBackingLayer() -> CALayer {
+        let layer = AVPlayerLayer()
+        layer.videoGravity = .resizeAspectFill
+        return layer
+    }
+    
+    override var wantsUpdateLayer: Bool {
+        return true
+    }
+    
+    func setPlayer(_ player: AVPlayer?) {
+        playerLayer?.player = player
+    }
+}
 
 final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     
-    private var playerView: AVPlayerView?
+    private var videoLayerView: VideoLayerView?
     private var fadeOverlay: NSView?
     private var animationGeneration: Int = 0  // Track animation generation to ignore stale callbacks
     private let targetScreen: NSScreen
@@ -37,21 +58,16 @@ final class DesktopWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         setFrame(targetScreen.frame, display: true)
         
-        // Create player view
-        let view = AVPlayerView()
-        view.controlsStyle = .none
-        view.videoGravity = .resizeAspectFill
+        // Create custom video layer view (using AVPlayerLayer directly, not AVPlayerView)
+        // This prevents macOS from registering the video as a media source
+        let view = VideoLayerView()
         view.frame = contentView?.bounds ?? .zero
         view.autoresizingMask = [.width, .height]
         view.wantsLayer = true
         view.layer?.drawsAsynchronously = true
         
-        // Prevent this player from appearing in macOS media controls
-        // AVPlayerView doesn't have direct properties for this, but we'll handle it
-        // by clearing Now Playing info whenever the player is set
-        
         contentView?.addSubview(view)
-        playerView = view
+        videoLayerView = view
         
         // Create fade overlay for smooth transitions
         let overlay = NSView(frame: contentView?.bounds ?? .zero)
@@ -84,9 +100,6 @@ final class DesktopWindow: NSWindow {
     }
     
     func setPlayer(_ player: AVPlayer?, animated: Bool = true) {
-        // Clear Now Playing info to prevent macOS from detecting this as media
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        
         // Increment generation to invalidate any pending animation callbacks
         animationGeneration += 1
         let currentGeneration = animationGeneration
@@ -100,22 +113,22 @@ final class DesktopWindow: NSWindow {
                 }) { [weak self] in
                     // Only proceed if this is still the current animation
                     guard let self = self, self.animationGeneration == currentGeneration else { return }
-                    self.playerView?.player = nil
+                    self.videoLayerView?.setPlayer(nil)
                     self.orderOut(nil) // Hide window
                     self.fadeOverlay?.alphaValue = 0.0
                 }
             } else {
-                playerView?.player = nil
+                videoLayerView?.setPlayer(nil)
                 orderOut(nil) // Hide window
             }
-        } else if animated && playerView?.player != nil {
+        } else if animated && videoLayerView?.playerLayer?.player != nil {
             // Fade transition: fade out old, switch player, fade in new
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.3
                 fadeOverlay?.animator().alphaValue = 1.0
             }) { [weak self] in
                 guard let self = self, self.animationGeneration == currentGeneration else { return }
-                self.playerView?.player = player
+                self.videoLayerView?.setPlayer(player)
                 NSAnimationContext.runAnimationGroup({ context in
                     context.duration = 0.3
                     self.fadeOverlay?.animator().alphaValue = 0.0
@@ -127,7 +140,7 @@ final class DesktopWindow: NSWindow {
             // Set overlay to fully opaque BEFORE setting player and showing window
             fadeOverlay?.alphaValue = 1.0
             // Set the player while overlay is covering it
-            playerView?.player = player
+            videoLayerView?.setPlayer(player)
             // Now show the window (player is hidden behind black overlay)
             orderBack(nil)
             // Start fade-in animation immediately
@@ -138,7 +151,7 @@ final class DesktopWindow: NSWindow {
             })
         } else {
             // Instant switch (no animation)
-            playerView?.player = player
+            videoLayerView?.setPlayer(player)
             fadeOverlay?.alphaValue = 0.0
             orderBack(nil)
         }
