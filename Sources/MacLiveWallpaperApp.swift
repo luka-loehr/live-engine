@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct MacLiveWallpaperApp: App {
+struct LiveEngineApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
@@ -44,6 +44,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
+        
+        // Test LiveWallpaperPlayer if test video exists and --test flag is passed
+        if CommandLine.arguments.contains("--test") {
+            testLiveWallpaperPlayer()
+        }
+    }
+    
+    @MainActor
+    private func testLiveWallpaperPlayer() {
+        let testVideoPath = "/Users/luka/Documents/live-engine/test-videos/2020 LG OLED l  The Black 4K HDR 60fps.mp4"
+        
+        guard FileManager.default.fileExists(atPath: testVideoPath) else {
+            print("Test video not found at: \(testVideoPath)")
+            return
+        }
+        
+        print("🧪 Testing LiveWallpaperPlayer...")
+        let player = LiveWallpaperPlayer()
+        let videoURL = URL(fileURLWithPath: testVideoPath)
+        
+        Task { @MainActor in
+            do {
+                print("▶️  Starting wallpaper playback...")
+                try await player.playVideo(at: videoURL)
+                print("✅ Video wallpaper started successfully!")
+                print("🔄 Video is looping infinitely")
+            } catch {
+                print("❌ Error: \(error.localizedDescription)")
+            }
+        }
     }
     
     @objc func togglePopover() {

@@ -158,23 +158,23 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
-                AddWallpaperCard(wallpaperManager: wallpaperManager, onAdded: onAdded)
+                LazyVGrid(columns: columns, spacing: 12) {
+                    AddWallpaperCard(wallpaperManager: wallpaperManager, onAdded: onAdded)
 
-                ForEach(wallpaperManager.videoEntries) { entry in
-                    VideoEntryCard(
-                        entry: entry,
-                        wallpaperManager: wallpaperManager,
-                        onToast: onToast
-                    )
-                    .transition(.asymmetric(
-                        insertion: .scale.combined(with: .opacity),
-                        removal: .scale(scale: 0.8).combined(with: .opacity)
-                    ))
+                    ForEach(wallpaperManager.videoEntries) { entry in
+                        VideoEntryCard(
+                            entry: entry,
+                            wallpaperManager: wallpaperManager,
+                            onToast: onToast
+                        )
+                        .transition(.asymmetric(
+                            insertion: .scale.combined(with: .opacity),
+                            removal: .scale(scale: 0.8).combined(with: .opacity)
+                        ))
+                    }
                 }
-            }
-            .padding(16)
-            .animation(.spring(response: 0.2, dampingFraction: 0.75), value: wallpaperManager.videoEntries.map { $0.id })
+                .padding(16)
+                .animation(.spring(response: 0.2, dampingFraction: 0.75), value: wallpaperManager.videoEntries.map { $0.id })
         }
     }
 }
@@ -301,8 +301,9 @@ struct VideoEntryCard: View {
                             Spacer()
                             Button(action: {
                                 let videoName = entry.name
+                                let truncatedName = videoName.count > 15 ? String(videoName.prefix(15)) + "..." : videoName
                                 wallpaperManager.deleteEntry(entry)
-                                onToast("Removed \"\(videoName)\"")
+                                onToast("Removed \"\(truncatedName)\"")
                             }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 18))
@@ -345,7 +346,8 @@ struct VideoEntryCard: View {
                     // Not playing - start playing this video
                     Task {
                         await wallpaperManager.setWallpaper(entry)
-                        onToast("Playing \"\(entry.name)\"")
+                        let truncatedName = entry.name.count > 15 ? String(entry.name.prefix(15)) + "..." : entry.name
+                        onToast("Playing \"\(truncatedName)\"")
                     }
                 }
             }
@@ -393,197 +395,182 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Settings")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Configure your wallpaper")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+            Text("Settings")
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
             
             Divider()
             
             // Audio Toggle Section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Playback")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-                
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(wallpaperManager.audioEnabled ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.1))
-                            .frame(width: 32, height: 32)
-                        
-                        Image(systemName: wallpaperManager.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(wallpaperManager.audioEnabled ? .accentColor : .secondary)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(systemName: wallpaperManager.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(wallpaperManager.audioEnabled ? .accentColor : .secondary)
+                        .frame(width: 20)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Audio")
-                            .font(.system(size: 12, weight: .medium))
-                        Text(wallpaperManager.audioEnabled ? "Enabled" : "Muted")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
+                    Text("Audio")
+                        .font(.system(size: 12))
 
                     Spacer()
 
                     Toggle("", isOn: $wallpaperManager.audioEnabled)
                         .toggleStyle(.switch)
-                        .scaleEffect(0.75)
+                        .scaleEffect(0.7)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            // Actions Section
+            VStack(spacing: 0) {
+                // Open Folder Button
+                Button(action: {
+                    let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    let videosDirectory = appSupport.appendingPathComponent("LiveEngine/Videos", isDirectory: true)
+                    NSWorkspace.shared.open(videosDirectory)
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringFolder ? .accentColor : .secondary)
+                            .frame(width: 20)
+
+                        Text("Open Videos Folder")
+                            .font(.system(size: 12))
+
+                        Spacer()
+
+                        Image(systemName: "arrow.up.forward")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(isHoveringFolder ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { h in
+                    withAnimation(.easeOut(duration: 0.15)) { isHoveringFolder = h }
+                }
+
+                // Clear Library Button
+                Button(action: {
+                    wallpaperManager.clearLibrary()
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringClear ? .red : .secondary)
+                            .frame(width: 20)
+
+                        Text("Clear Library")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringClear ? .red : .primary)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(isHoveringClear ? Color.red.opacity(0.1) : Color.clear)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { h in
+                    withAnimation(.easeOut(duration: 0.15)) { isHoveringClear = h }
+                }
+                
+                // Support Me Button
+                Button(action: {
+                    if let url = URL(string: "https://buymeacoffee.com/lukaloehr") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringSupport ? .pink : .secondary)
+                            .frame(width: 20)
+                        
+                        Text("Support Me")
+                            .font(.system(size: 12))
+                            .foregroundColor(isHoveringSupport ? .pink : .primary)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "arrow.up.forward")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(isHoveringSupport ? Color.pink.opacity(0.1) : Color.clear)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { h in
+                    withAnimation(.easeOut(duration: 0.15)) { isHoveringSupport = h }
+                }
+            }
+            .padding(.horizontal, 0)
+            
+            Divider()
+                .padding(.vertical, 4)
+            
+            // Quit Button Section
+            Button(action: {
+                NSApplication.shared.terminate(nil)
+            }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "power")
+                        .font(.system(size: 12))
+                        .foregroundColor(isHoveringQuit ? .red : .secondary)
+                        .frame(width: 20)
+                    
+                    Text("Quit live-engine")
+                        .font(.system(size: 12))
+                        .foregroundColor(isHoveringQuit ? .red : .primary)
+                    
+                    Spacer()
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                .background(isHoveringQuit ? Color.red.opacity(0.1) : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 8)
-
-            Divider()
-
-            // Actions Section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Actions")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-                
-                VStack(spacing: 4) {
-                    // Open Folder Button
-                    SettingsButton(
-                        icon: "folder.fill",
-                        title: "Open Videos Folder",
-                        iconColor: .blue,
-                        isHovering: $isHoveringFolder,
-                        action: {
-                            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                            let videosDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Videos", isDirectory: true)
-                            NSWorkspace.shared.open(videosDirectory)
-                        }
-                    )
-
-                    // Clear Library Button
-                    SettingsButton(
-                        icon: "trash.fill",
-                        title: "Clear Library",
-                        iconColor: .red,
-                        isHovering: $isHoveringClear,
-                        action: {
-                            wallpaperManager.clearLibrary()
-                        }
-                    )
-                    
-                    // Support Me Button
-                    SettingsButton(
-                        icon: "heart.fill",
-                        title: "Support Me",
-                        iconColor: .pink,
-                        isHovering: $isHoveringSupport,
-                        showArrow: true,
-                        action: {
-                            if let url = URL(string: "https://buymeacoffee.com/lukaloehr") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                    )
-                }
-                .padding(.horizontal, 12)
+            .buttonStyle(.plain)
+            .onHover { h in
+                withAnimation(.easeOut(duration: 0.15)) { isHoveringQuit = h }
             }
-            .padding(.vertical, 8)
             
             Divider()
-            
-            // Quit Button Section
-            VStack(spacing: 8) {
-                SettingsButton(
-                    icon: "power",
-                    title: "Quit MacLive",
-                    iconColor: .gray,
-                    isHovering: $isHoveringQuit,
-                    action: {
-                        NSApplication.shared.terminate(nil)
-                    }
-                )
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            
-            Spacer()
+                .padding(.top, 4)
+                .padding(.bottom, 8)
             
             // Version Section (at bottom)
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.seal.fill")
+            HStack {
+                Text("live-engine")
                     .font(.system(size: 10))
-                    .foregroundColor(.green.opacity(0.7))
-                
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("MacLive Wallpaper")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.primary.opacity(0.8))
-                    Text("Version 1.0.0")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary.opacity(0.7))
-                }
-                
+                    .foregroundColor(.secondary)
                 Spacer()
+                Text("v1.0.0")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.6))
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color.secondary.opacity(0.05))
+            .padding(.bottom, 8)
         }
-        .frame(width: 240)
-    }
-}
-
-// MARK: - Settings Button Component
-
-struct SettingsButton: View {
-    let icon: String
-    let title: String
-    let iconColor: Color
-    @Binding var isHovering: Bool
-    var showArrow: Bool = false
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(isHovering ? iconColor.opacity(0.15) : Color.secondary.opacity(0.1))
-                        .frame(width: 32, height: 32)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 14))
-                        .foregroundColor(isHovering ? iconColor : .secondary)
-                }
-                
-                Text(title)
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary)
-                
-                Spacer()
-                
-                if showArrow {
-                    Image(systemName: "arrow.up.forward")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary.opacity(0.5))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(isHovering ? iconColor.opacity(0.08) : Color.clear)
-            .cornerRadius(8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { h in
-            withAnimation(.easeOut(duration: 0.15)) { isHovering = h }
-        }
+        .frame(width: 200)
     }
 }
 
