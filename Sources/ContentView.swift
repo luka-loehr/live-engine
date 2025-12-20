@@ -142,6 +142,11 @@ struct ContentView: View {
                 showingSettings = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowLibrary"))) { _ in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                showingSettings = false
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("MainWindowShown"))) { _ in
             // Pick a new random tip when window is shown
             if !wallpaperManager.videoEntries.isEmpty {

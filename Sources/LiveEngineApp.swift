@@ -153,6 +153,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     
     @objc func showMainWindow() {
         MainWindow.shared?.show()
+        // Post notification to show library (close settings if open)
+        NotificationCenter.default.post(name: NSNotification.Name("ShowLibrary"), object: nil)
     }
     
     @objc func showMenu() {
