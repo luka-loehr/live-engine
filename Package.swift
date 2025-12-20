@@ -2,13 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacLiveWallpaper",
+    name: "live-engine",
     platforms: [
         .macOS(.v13)
     ],
+    dependencies: [],
     targets: [
         .executableTarget(
-            name: "MacLiveWallpaper",
+            name: "LiveEngine",
+            dependencies: [],
             path: "Sources"
         )
     ]

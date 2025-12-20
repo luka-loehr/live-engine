@@ -8,7 +8,6 @@ struct LocalVideo: Identifiable, Equatable, Codable {
     var title: String?
     var thumbnailPath: String?  // Local file path to thumbnail
     var downloadSize: Int64?
-    var youtubeURL: String?  // Optional, not used for local files
     var addedToLibrary: Bool
     var downloaded: Bool
     var downloadPath: String?
@@ -20,7 +19,6 @@ struct LocalVideo: Identifiable, Equatable, Codable {
         case title
         case thumbnailPath = "thumbnail_path"
         case downloadSize = "download_size"
-        case youtubeURL = "youtube_url"
         case addedToLibrary = "added_to_library"
         case downloaded
         case downloadPath = "download_path"
@@ -37,6 +35,8 @@ struct AppSettings: Codable {
     var audioEnabled: Bool = false
     var preferredQuality: String = "1080p"
     var autoPlay: Bool = false
+    var autoStartOnLaunch: Bool = false
+    var lastWallpaperID: String? = nil
 }
 
 // MARK: - Local Storage Service
@@ -51,13 +51,13 @@ class LocalStorageService: ObservableObject {
     private var videoCache: [String: LocalVideo] = [:]
     private var libraryVideosCache: [LocalVideo] = []
 
-    private let videosKey = "MacLiveWallpaper.videos"
-    private let settingsKey = "MacLiveWallpaper.settings"
+    private let videosKey = "LiveEngine.videos"
+    private let settingsKey = "LiveEngine.settings"
     private let thumbnailsDirectory: URL
 
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        thumbnailsDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Thumbnails", isDirectory: true)
+        thumbnailsDirectory = appSupport.appendingPathComponent("LiveEngine/Thumbnails", isDirectory: true)
         try? FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
 
         loadSettings()
@@ -83,6 +83,14 @@ class LocalStorageService: ObservableObject {
             UserDefaults.standard.set(data, forKey: settingsKey)
         }
     }
+    
+    func setLastWallpaperID(_ videoId: String?) {
+        updateSettings { $0.lastWallpaperID = videoId }
+    }
+    
+    func getLastWallpaperID() -> String? {
+        return settings.lastWallpaperID
+    }
 
     // MARK: - Video Operations
 
@@ -91,7 +99,6 @@ class LocalStorageService: ObservableObject {
         title: String? = nil,
         thumbnailPath: String? = nil,
         downloadSize: Int64? = nil,
-        youtubeURL: String? = nil,
         addedToLibrary: Bool? = nil
     ) {
         let existingVideo = videoCache[videoId]
@@ -102,7 +109,6 @@ class LocalStorageService: ObservableObject {
             title: title ?? existingVideo?.title,
             thumbnailPath: thumbnailPath ?? existingVideo?.thumbnailPath,
             downloadSize: downloadSize ?? existingVideo?.downloadSize,
-            youtubeURL: youtubeURL ?? existingVideo?.youtubeURL,
             addedToLibrary: addedToLibrary ?? existingVideo?.addedToLibrary ?? false,
             downloaded: existingVideo?.downloaded ?? false,
             downloadPath: existingVideo?.downloadPath,

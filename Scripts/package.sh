@@ -2,10 +2,11 @@
 
 set -e
 
-APP_NAME="MacLiveWallpaper"
+APP_NAME="LiveEngine"
+DISPLAY_NAME="Live Engine"
 BUILD_DIR=".build/release"
-APP_BUNDLE="$APP_NAME.app"
-DMG_NAME="$APP_NAME.dmg"
+APP_BUNDLE="$DISPLAY_NAME.app"
+DMG_NAME="Live-Engine.dmg"
 
 echo "Building release..."
 swift build -c release
@@ -36,18 +37,18 @@ rm -f "$DMG_NAME"
 # Check if create-dmg is installed
 if command -v create-dmg &> /dev/null; then
     create-dmg \
-      --volname "$APP_NAME Installer" \
+      --volname "$DISPLAY_NAME Installer" \
       --window-pos 200 120 \
       --window-size 800 400 \
       --icon-size 100 \
-      --icon "$APP_NAME.app" 200 190 \
-      --hide-extension "$APP_NAME.app" \
+      --icon "$DISPLAY_NAME.app" 200 190 \
+      --hide-extension "$DISPLAY_NAME.app" \
       --app-drop-link 600 185 \
       "$DMG_NAME" \
       "$APP_BUNDLE"
 else
     echo "create-dmg not found. Falling back to hdiutil..."
-    hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_NAME"
+    hdiutil create -volname "$DISPLAY_NAME" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_NAME"
 fi
 
 echo "Done! DMG created at $DMG_NAME"

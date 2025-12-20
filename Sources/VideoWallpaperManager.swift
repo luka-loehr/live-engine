@@ -11,6 +11,13 @@ class VideoWallpaperManager: ObservableObject {
         didSet {
             LocalStorageService.shared.updateSettings { $0.audioEnabled = audioEnabled }
             updateCurrentPlayerAudio()
+            // Notify menu to update
+            NotificationCenter.default.post(name: NSNotification.Name("WallpaperStateChanged"), object: nil)
+        }
+    }
+    @Published var autoStartOnLaunch: Bool {
+        didSet {
+            LocalStorageService.shared.updateSettings { $0.autoStartOnLaunch = autoStartOnLaunch }
         }
     }
 
@@ -23,12 +30,13 @@ class VideoWallpaperManager: ObservableObject {
     
     init() {
         print("[VIDEO] Initializing VideoWallpaperManager...")
-        // Load audio setting from local storage (default to false/muted)
+        // Load settings from local storage
         audioEnabled = LocalStorageService.shared.settings.audioEnabled
+        autoStartOnLaunch = LocalStorageService.shared.settings.autoStartOnLaunch
 
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        thumbnailsDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Thumbnails", isDirectory: true)
-        videosDirectory = appSupport.appendingPathComponent("MacLiveWallpaper/Videos", isDirectory: true)
+        thumbnailsDirectory = appSupport.appendingPathComponent("LiveEngine/Thumbnails", isDirectory: true)
+        videosDirectory = appSupport.appendingPathComponent("LiveEngine/Videos", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: videosDirectory, withIntermediateDirectories: true)
@@ -36,6 +44,8 @@ class VideoWallpaperManager: ObservableObject {
 
         Task {
             await loadLibrary()
+            // Restore last wallpaper if auto start is enabled
+            await restoreLastWallpaperIfNeeded()
         }
     }
     
@@ -136,7 +146,6 @@ class VideoWallpaperManager: ObservableObject {
             title: fileName,
             thumbnailPath: nil,
             downloadSize: fileSize,
-            youtubeURL: nil,
             addedToLibrary: true
         )
         storage.setDownloaded(videoId: videoID, path: destinationURL.path)
@@ -153,7 +162,6 @@ class VideoWallpaperManager: ObservableObject {
                         title: nil,
                         thumbnailPath: thumbnailPath,
                         downloadSize: nil,
-                        youtubeURL: nil,
                         addedToLibrary: nil
                     )
                 }
@@ -207,7 +215,6 @@ class VideoWallpaperManager: ObservableObject {
                 title: newName,
                 thumbnailPath: video.thumbnailPath,
                 downloadSize: video.downloadSize,
-                youtubeURL: video.youtubeURL,
                 addedToLibrary: video.addedToLibrary
             )
         }
@@ -262,25 +269,6 @@ class VideoWallpaperManager: ObservableObject {
         await playVideo(at: path, entryID: entry.id)
     }
 
-    // Clear all videos from library
-    func clearLibrary() {
-        print("[LIBRARY] Clearing all videos...")
-        stopWallpaper()
-
-        // Delete all video files and thumbnails
-        for entry in videoEntries {
-            if let video = storage.getVideo(videoId: entry.id) {
-                if let downloadPath = video.downloadPath {
-                    try? FileManager.default.removeItem(atPath: downloadPath)
-                }
-            }
-            storage.deleteVideo(videoId: entry.id)
-        }
-
-        videoEntries.removeAll()
-        print("[LIBRARY] Library cleared")
-    }
-    
     private func playVideo(at url: URL, entryID: String) async {
         print("[WALLPAPER] Attempting to play video: \(url.path)")
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -296,6 +284,10 @@ class VideoWallpaperManager: ObservableObject {
         do {
             try await wallpaperPlayer.playVideo(at: url)
             currentPlayingID = entryID
+            // Save last wallpaper ID
+            storage.setLastWallpaperID(entryID)
+            // Notify menu to update
+            NotificationCenter.default.post(name: NSNotification.Name("WallpaperStateChanged"), object: nil)
             print("[WALLPAPER] Video wallpaper started successfully: \(url.lastPathComponent)")
         } catch {
             print("[WALLPAPER] ERROR: Failed to play video wallpaper: \(error.localizedDescription)")
@@ -306,6 +298,48 @@ class VideoWallpaperManager: ObservableObject {
         print("[WALLPAPER] Stopping wallpaper (current ID: \(currentPlayingID ?? "none"))")
         wallpaperPlayer.stop()
         currentPlayingID = nil
+        // Clear last wallpaper ID when stopped
+        storage.setLastWallpaperID(nil)
+        // Notify menu to update
+        NotificationCenter.default.post(name: NSNotification.Name("WallpaperStateChanged"), object: nil)
         print("[WALLPAPER] Wallpaper stopped")
+    }
+    
+    // Restore last wallpaper if auto start is enabled
+    func restoreLastWallpaperIfNeeded() async {
+        guard autoStartOnLaunch else {
+            print("[WALLPAPER] Auto start disabled, skipping wallpaper restoration")
+            return
+        }
+        
+        guard let lastWallpaperID = storage.getLastWallpaperID() else {
+            print("[WALLPAPER] No last wallpaper found")
+            return
+        }
+        
+        // Find the entry with the last wallpaper ID
+        guard let entry = videoEntries.first(where: { $0.id == lastWallpaperID }) else {
+            print("[WALLPAPER] Last wallpaper entry not found: \(lastWallpaperID)")
+            return
+        }
+        
+        // Verify the video file still exists
+        var videoPath: URL?
+        if let url = entry.videoURL, FileManager.default.fileExists(atPath: url.path) {
+            videoPath = url
+        } else if let video = storage.getVideo(videoId: entry.id),
+                  let downloadPath = video.downloadPath,
+                  FileManager.default.fileExists(atPath: downloadPath) {
+            videoPath = URL(fileURLWithPath: downloadPath)
+        }
+        
+        guard let path = videoPath else {
+            print("[WALLPAPER] Last wallpaper file not found, clearing saved ID")
+            storage.setLastWallpaperID(nil)
+            return
+        }
+        
+        print("[WALLPAPER] Restoring last wallpaper: \(entry.name)")
+        await playVideo(at: path, entryID: entry.id)
     }
 }

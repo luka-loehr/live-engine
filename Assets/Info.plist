@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>MacLiveWallpaper</string>
+    <string>LiveEngine</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.MacLiveWallpaper</string>
+    <string>com.example.LiveEngine</string>
     <key>CFBundleName</key>
-    <string>MacLiveWallpaper</string>
+    <string>Live Engine</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>
