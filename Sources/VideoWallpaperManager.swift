@@ -2,8 +2,6 @@ import Foundation
 import AppKit
 import SwiftUI
 import AVFoundation
-import ServiceManagement
-import CoreServices
 
 @MainActor
 class VideoWallpaperManager: ObservableObject {
@@ -69,8 +67,7 @@ class VideoWallpaperManager: ObservableObject {
     }
     
     private func updateLoginItem() {
-        // Add or remove app from login items based on autoStartOnLaunch setting
-        // Note: Uses deprecated API but it still works on modern macOS
+        // Add or remove LaunchAgent plist file based on autoStartOnLaunch setting
         // Ensure we're on the main thread
         guard Thread.isMainThread else {
             Task { @MainActor in
@@ -80,54 +77,48 @@ class VideoWallpaperManager: ObservableObject {
         }
         
         let appURL = Bundle.main.bundleURL
-        let appURLRef = appURL as CFURL
+        let appBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.liveengine.app"
+        let launchAgentName = "\(appBundleIdentifier).plist"
         
-        guard let loginItems = LSSharedFileListCreate(nil, kLSSharedFileListSessionLoginItems.takeUnretainedValue(), nil)?.takeRetainedValue() else {
-            print("[SETTINGS] Failed to access login items list")
-            return
-        }
+        // Get LaunchAgents directory
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let launchAgentsURL = homeDirectory.appendingPathComponent("Library/LaunchAgents")
+        let launchAgentURL = launchAgentsURL.appendingPathComponent(launchAgentName)
+        
+        let fileManager = FileManager.default
         
         if autoStartOnLaunch {
-            // Check if already in login items
-            var found = false
-            if let loginItemsArray = LSSharedFileListCopySnapshot(loginItems, nil)?.takeRetainedValue() as? [LSSharedFileListItem] {
-                for item in loginItemsArray {
-                    if let itemURL = LSSharedFileListItemCopyResolvedURL(item, 0, nil)?.takeRetainedValue() {
-                        if itemURL as URL == appURL {
-                            found = true
-                            break
-                        }
-                    }
-                }
-            }
+            // Create LaunchAgents directory if it doesn't exist
+            try? fileManager.createDirectory(at: launchAgentsURL, withIntermediateDirectories: true)
             
-            // Add to login items if not already there
-            if !found {
-                let item = LSSharedFileListInsertItemURL(loginItems, kLSSharedFileListItemBeforeFirst.takeUnretainedValue(), nil, nil, appURLRef, nil, nil)
-                if item != nil {
-                    print("[SETTINGS] Added app to login items")
-                } else {
-                    print("[SETTINGS] Failed to add app to login items")
+            // Create LaunchAgent plist
+            let plist: [String: Any] = [
+                "Label": appBundleIdentifier,
+                "ProgramArguments": [appURL.path],
+                "RunAtLoad": true
+            ]
+            
+            if let plistData = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) {
+                do {
+                    try plistData.write(to: launchAgentURL)
+                    print("[SETTINGS] Created LaunchAgent: \(launchAgentURL.path)")
+                } catch {
+                    print("[SETTINGS] Failed to write LaunchAgent file: \(error)")
                 }
             } else {
-                print("[SETTINGS] App already in login items")
+                print("[SETTINGS] Failed to serialize LaunchAgent plist")
             }
         } else {
-            // Remove from login items
-            if let loginItemsArray = LSSharedFileListCopySnapshot(loginItems, nil)?.takeRetainedValue() as? [LSSharedFileListItem] {
-                for item in loginItemsArray {
-                    if let itemURL = LSSharedFileListItemCopyResolvedURL(item, 0, nil)?.takeRetainedValue() {
-                        if itemURL as URL == appURL {
-                            let result = LSSharedFileListItemRemove(loginItems, item)
-                            if result == noErr {
-                                print("[SETTINGS] Removed app from login items")
-                            } else {
-                                print("[SETTINGS] Failed to remove app from login items: \(result)")
-                            }
-                            break
-                        }
-                    }
+            // Remove LaunchAgent plist
+            if fileManager.fileExists(atPath: launchAgentURL.path) {
+                do {
+                    try fileManager.removeItem(at: launchAgentURL)
+                    print("[SETTINGS] Removed LaunchAgent: \(launchAgentURL.path)")
+                } catch {
+                    print("[SETTINGS] Failed to remove LaunchAgent: \(error)")
                 }
+            } else {
+                print("[SETTINGS] LaunchAgent not found (already removed)")
             }
         }
     }
