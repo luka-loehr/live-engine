@@ -226,6 +226,7 @@ struct LibraryView: View {
     @Binding var showingURLInput: Bool
     var onAdded: () -> Void = {}
     var onToast: (String) -> Void = { _ in }
+    @State private var draggedEntry: VideoEntry?
 
     let columns = [
         GridItem(.adaptive(minimum: 140), spacing: 12)
@@ -243,6 +244,16 @@ struct LibraryView: View {
                             onToast: onToast
                         )
                         .id(entry.id)
+                        .opacity(draggedEntry?.id == entry.id ? 0.5 : 1.0)
+                        .onDrag {
+                            draggedEntry = entry
+                            return NSItemProvider(object: entry.id as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: VideoDropReorderDelegate(
+                            entry: entry,
+                            wallpaperManager: wallpaperManager,
+                            draggedEntry: $draggedEntry
+                        ))
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.9)),
                             removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -1118,6 +1129,34 @@ struct VisualEffectView: NSViewRepresentable {
     func updateNSView(_ visualEffectView: NSVisualEffectView, context: Context) {
         visualEffectView.material = material
         visualEffectView.blendingMode = blendingMode
+    }
+}
+
+// MARK: - Drag and Drop Reorder Delegate
+
+struct VideoDropReorderDelegate: DropDelegate {
+    let entry: VideoEntry
+    let wallpaperManager: VideoWallpaperManager
+    @Binding var draggedEntry: VideoEntry?
+    
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedEntry = draggedEntry,
+              draggedEntry.id != entry.id else {
+            return false
+        }
+        
+        wallpaperManager.moveEntry(from: draggedEntry, to: entry)
+        self.draggedEntry = nil
+        return true
+    }
+    
+    func dropEntered(info: DropInfo) {
+        guard let draggedEntry = draggedEntry,
+              draggedEntry.id != entry.id else {
+            return
+        }
+        
+        wallpaperManager.moveEntry(from: draggedEntry, to: entry)
     }
 }
 

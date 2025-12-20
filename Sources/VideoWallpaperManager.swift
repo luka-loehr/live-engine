@@ -255,6 +255,19 @@ class VideoWallpaperManager: ObservableObject {
         }
     }
     
+    func moveEntry(from sourceEntry: VideoEntry, to targetEntry: VideoEntry) {
+        guard let sourceIndex = videoEntries.firstIndex(where: { $0.id == sourceEntry.id }),
+              let targetIndex = videoEntries.firstIndex(where: { $0.id == targetEntry.id }),
+              sourceIndex != targetIndex else {
+            return
+        }
+        
+        withAnimation(.easeInOut(duration: 0.25)) {
+            let item = videoEntries.remove(at: sourceIndex)
+            videoEntries.insert(item, at: targetIndex)
+        }
+    }
+    
     // MARK: - Playback
     
     // Simple function to set already-downloaded video as wallpaper
