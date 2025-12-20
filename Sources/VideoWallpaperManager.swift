@@ -120,6 +120,7 @@ class VideoWallpaperManager: ObservableObject {
                     print("[SETTINGS] Created LaunchAgent: \(launchAgentURL.path)")
                     
                     // Unload existing agent first if it exists (to update it)
+                    // This prevents duplicate agents but doesn't trigger RunAtLoad
                     let unloadProcess = Process()
                     unloadProcess.executableURL = URL(fileURLWithPath: "/bin/launchctl")
                     if #available(macOS 10.15, *) {
@@ -131,31 +132,10 @@ class VideoWallpaperManager: ObservableObject {
                     try? unloadProcess.run()
                     unloadProcess.waitUntilExit()
                     
-                    // Load the LaunchAgent using launchctl bootstrap (modern API)
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-                    // Use bootstrap for modern macOS, fallback to load for older versions
-                    if #available(macOS 10.15, *) {
-                        // Get current user ID
-                        let userID = getuid()
-                        process.arguments = ["bootstrap", "gui/\(userID)", launchAgentURL.path]
-                    } else {
-                        process.arguments = ["load", launchAgentURL.path]
-                    }
-                    
-                    do {
-                        try process.run()
-                        process.waitUntilExit()
-                        if process.terminationStatus == 0 {
-                            print("[SETTINGS] Successfully loaded LaunchAgent: \(launchAgentLabel)")
-                        } else {
-                            let errorData = try? Data(contentsOf: URL(fileURLWithPath: "/tmp/\(launchAgentLabel).err.log"))
-                            let errorString = errorData.flatMap { String(data: $0, encoding: .utf8) } ?? "unknown"
-                            print("[SETTINGS] Failed to load LaunchAgent (exit code: \(process.terminationStatus)): \(errorString)")
-                        }
-                    } catch {
-                        print("[SETTINGS] Failed to execute launchctl: \(error)")
-                    }
+                    // DO NOT load the LaunchAgent immediately - this would trigger RunAtLoad
+                    // and cause a second instance of the app to start.
+                    // The LaunchAgent will be automatically loaded by macOS on the next login.
+                    print("[SETTINGS] LaunchAgent plist created. It will be loaded automatically on next login.")
                 } catch {
                     print("[SETTINGS] Failed to write LaunchAgent file: \(error)")
                 }
