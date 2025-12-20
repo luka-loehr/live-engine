@@ -122,7 +122,7 @@ final class DesktopWindow: NSWindow {
                 orderOut(nil) // Hide window
             }
         } else if animated && videoLayerView?.playerLayer?.player != nil {
-            // Fade transition: fade out old, switch player, fade in new
+            // Fade transition: fade out old, switch player, fade in new (1 second fade-in)
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.3
                 fadeOverlay?.animator().alphaValue = 1.0
@@ -130,7 +130,8 @@ final class DesktopWindow: NSWindow {
                 guard let self = self, self.animationGeneration == currentGeneration else { return }
                 self.videoLayerView?.setPlayer(player)
                 NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = 0.3
+                    context.duration = 1.0  // 1 second fade-in
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     self.fadeOverlay?.animator().alphaValue = 0.0
                 })
             }
