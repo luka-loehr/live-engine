@@ -5,9 +5,24 @@ import AVFoundation
 /// A simple component that displays an MP4 video as a live wallpaper with infinite looping
 @MainActor
 class LiveWallpaperPlayer: ObservableObject {
-    private var desktopWindow: DesktopWindow?
+    private var desktopWindows: [ObjectIdentifier: DesktopWindow] = [:]
+    private var screenToID: [NSScreen: ObjectIdentifier] = [:]
     private var player: AVPlayer?
     private var loopObserver: NSObjectProtocol?
+    private var screenChangeObserver: NSObjectProtocol?
+    
+    init() {
+        // Listen for screen configuration changes
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleScreenConfigurationChange()
+            }
+        }
+    }
     
     /// Starts playing a video file as wallpaper with infinite loop
     /// - Parameter videoURL: The file URL to the MP4 video file
@@ -29,14 +44,14 @@ class LiveWallpaperPlayer: ObservableObject {
         player?.pause()
         player = nil
         
-        // Create or reuse desktop window
-        if desktopWindow == nil {
-            desktopWindow = DesktopWindow()
-        }
+        // Ensure we have windows for all screens
+        ensureWindowsForAllScreens()
         
-        // If we had an existing player, clear it from the view first to ensure smooth transition
+        // If we had an existing player, clear it from all views first to ensure smooth transition
         if hasExistingPlayer {
-            desktopWindow?.setPlayer(nil, animated: false)
+            for (_, window) in desktopWindows {
+                window.setPlayer(nil, animated: false)
+            }
         }
         
         // Create player
@@ -56,9 +71,11 @@ class LiveWallpaperPlayer: ObservableObject {
         // Set up infinite looping
         setupLoopObserver(for: newPlayer)
         
-        // Set player in desktop window (this will handle transition from old to new)
+        // Set player in all desktop windows (this will handle transition from old to new)
         // Always use animated: true to ensure smooth fade-in
-        desktopWindow?.setPlayer(newPlayer, animated: true)
+        for (_, window) in desktopWindows {
+            window.setPlayer(newPlayer, animated: true)
+        }
         
         // Store player reference
         self.player = newPlayer
@@ -83,9 +100,11 @@ class LiveWallpaperPlayer: ObservableObject {
         player?.pause()
         player = nil
         
-        // Hide desktop window with fade animation
-        desktopWindow?.setPlayer(nil, animated: true)
-        // Keep the window reference for reuse
+        // Hide all desktop windows with fade animation
+        for (_, window) in desktopWindows {
+            window.setPlayer(nil, animated: true)
+        }
+        // Keep the window references for reuse
         
         print("[PLAYER] Wallpaper stopped")
     }
@@ -157,12 +176,62 @@ class LiveWallpaperPlayer: ObservableObject {
         loopObserver = observer
     }
     
+    // MARK: - Screen Management
+    
+    private func ensureWindowsForAllScreens() {
+        let currentScreens = NSScreen.screens
+        let currentScreenIDs = Set(currentScreens.map { ObjectIdentifier($0) })
+        let existingScreenIDs = Set(desktopWindows.keys)
+        
+        // Create windows for new screens
+        for screen in currentScreens {
+            let screenID = ObjectIdentifier(screen)
+            if desktopWindows[screenID] == nil {
+                print("[PLAYER] Creating desktop window for screen: \(screen.localizedName)")
+                let window = DesktopWindow(screen: screen)
+                desktopWindows[screenID] = window
+                screenToID[screen] = screenID
+                
+                // If we have a player, set it immediately on the new window
+                if let player = player {
+                    window.setPlayer(player, animated: false)
+                }
+            }
+        }
+        
+        // Remove windows for screens that no longer exist
+        for screenID in existingScreenIDs {
+            if !currentScreenIDs.contains(screenID) {
+                print("[PLAYER] Removing desktop window for disconnected screen")
+                desktopWindows[screenID]?.close()
+                desktopWindows.removeValue(forKey: screenID)
+            }
+        }
+        
+        // Clean up screenToID mapping for disconnected screens
+        screenToID = screenToID.filter { currentScreens.contains($0.key) }
+    }
+    
+    private func handleScreenConfigurationChange() {
+        print("[PLAYER] Screen configuration changed, updating windows...")
+        ensureWindowsForAllScreens()
+    }
+    
     deinit {
-        // Clean up observer synchronously (deinit can't be async)
+        // Clean up observers synchronously (deinit can't be async)
         if let observer = loopObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        // Player and window will be cleaned up automatically
+        if let observer = screenChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        // Close all windows
+        for (_, window) in desktopWindows {
+            window.close()
+        }
+        desktopWindows.removeAll()
+        screenToID.removeAll()
+        // Player will be cleaned up automatically
     }
 }
 

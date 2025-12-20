@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import AVFoundation
+import CoreImage
 
 struct ContentView: View {
     @ObservedObject var wallpaperManager: VideoWallpaperManager
@@ -128,6 +130,13 @@ struct ContentView: View {
         }
         .background(.thinMaterial)
         .frame(minWidth: 600, minHeight: 400)
+        .onDrop(of: [.fileURL], delegate: VideoDropDelegate(wallpaperManager: wallpaperManager, onToast: showToastMessage))
+        .onChange(of: showingSettings) { newValue in
+            // When switching back to library, videos will fade in smoothly
+            if !newValue {
+                // Library view is being shown - videos will fade in via their onAppear handlers
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowSettings"))) { _ in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 showingSettings = true
@@ -233,14 +242,15 @@ struct LibraryView: View {
                             wallpaperManager: wallpaperManager,
                             onToast: onToast
                         )
+                        .id(entry.id)
                         .transition(.asymmetric(
-                            insertion: .scale.combined(with: .opacity),
-                            removal: .scale(scale: 0.8).combined(with: .opacity)
+                            insertion: .opacity.combined(with: .scale(scale: 0.9)),
+                            removal: .opacity.combined(with: .scale(scale: 0.9))
                         ))
                     }
+                    .animation(.easeInOut(duration: 0.25), value: wallpaperManager.videoEntries.map { $0.id })
                 }
                 .padding(24)
-                .animation(.spring(response: 0.2, dampingFraction: 0.75), value: wallpaperManager.videoEntries.map { $0.id })
         }
     }
 }
@@ -323,6 +333,126 @@ struct AddWallpaperCard: View {
     }
 }
 
+// MARK: - Video Preview View
+
+struct VideoPreviewView: NSViewRepresentable {
+    let videoURL: URL
+    @Binding var isPlaying: Bool
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = VideoPreviewContainerView()
+        view.coordinator = context.coordinator
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let containerView = nsView as? VideoPreviewContainerView else { return }
+        
+        // Always play if isPlaying is true (which it will be for always-on previews)
+        if isPlaying {
+            // Only create player if we don't have one or URL changed
+            if context.coordinator.player == nil || context.coordinator.videoURL != videoURL {
+                context.coordinator.cleanup()
+                context.coordinator.setupPlayer(url: videoURL, containerView: containerView)
+            }
+        } else {
+            // Clean up player when not playing
+            context.coordinator.cleanup()
+        }
+        
+        // Update layer frame
+        context.coordinator.updateFrame(containerView.bounds)
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator {
+        var player: AVPlayer?
+        var playerLayer: AVPlayerLayer?
+        var loopObserver: NSObjectProtocol?
+        var videoURL: URL?
+        
+        func setupPlayer(url: URL, containerView: VideoPreviewContainerView) {
+            videoURL = url
+            
+            // Create and configure player
+            let player = AVPlayer(url: url)
+            player.isMuted = true
+            player.actionAtItemEnd = .none
+            
+            // Create player layer
+            let playerLayer = AVPlayerLayer(player: player)
+            playerLayer.videoGravity = .resizeAspectFill
+            playerLayer.frame = containerView.bounds
+            
+            // Add to view
+            containerView.layer?.addSublayer(playerLayer)
+            
+            // Store references
+            self.player = player
+            self.playerLayer = playerLayer
+            
+            // Set up looping
+            if let item = player.currentItem {
+                loopObserver = NotificationCenter.default.addObserver(
+                    forName: .AVPlayerItemDidPlayToEndTime,
+                    object: item,
+                    queue: .main
+                ) { [weak player] _ in
+                    player?.seek(to: .zero) { _ in
+                        player?.play()
+                    }
+                }
+            }
+            
+            // Start playing
+            player.play()
+        }
+        
+        func updateFrame(_ frame: CGRect) {
+            playerLayer?.frame = frame
+        }
+        
+        func cleanup() {
+            if let observer = loopObserver {
+                NotificationCenter.default.removeObserver(observer)
+                loopObserver = nil
+            }
+            player?.pause()
+            playerLayer?.removeFromSuperlayer()
+            player = nil
+            playerLayer = nil
+            videoURL = nil
+        }
+        
+        deinit {
+            cleanup()
+        }
+    }
+}
+
+// Custom NSView to hold the player layer
+class VideoPreviewContainerView: NSView {
+    weak var coordinator: VideoPreviewView.Coordinator?
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+    }
+    
+    override func layout() {
+        super.layout()
+        coordinator?.updateFrame(bounds)
+    }
+}
+
 // MARK: - Video Entry Card
 
 struct VideoEntryCard: View {
@@ -332,6 +462,8 @@ struct VideoEntryCard: View {
     @State private var isHovering = false
     @State private var isHoveringDelete = false
     @State private var pulseAnimation = false
+    @State private var dominantColors: [Color] = [.blue, .blue] // Default to blue gradient
+    @State private var videoPreviewReady = false
 
     private var isPlaying: Bool {
         wallpaperManager.currentPlayingID == entry.id
@@ -340,66 +472,104 @@ struct VideoEntryCard: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Thumbnail or placeholder
-                if let thumbnail = entry.thumbnail {
-                    Image(nsImage: thumbnail)
-                        .resizable()
-                        .aspectRatio(16/9, contentMode: .fill)
+                // Loading placeholder - always shown until video is ready
+                Rectangle()
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                    .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
+                    .overlay(
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .opacity(videoPreviewReady ? 0.0 : 1.0)
+                    )
+                    .opacity(videoPreviewReady ? 0.0 : 1.0)
+                    .animation(.easeInOut(duration: 0.3), value: videoPreviewReady)
+                
+                // Video preview - fades in when ready
+                if let videoURL = entry.videoURL, entry.isDownloaded {
+                    VideoPreviewView(videoURL: videoURL, isPlaying: .constant(true))
                         .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                         .clipped()
-                        .opacity(entry.isDownloaded ? 1.0 : 0.5)
-                } else {
-                    // Loading placeholder
-                    Rectangle()
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-                        .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
-                        .overlay(
-                            ProgressView()
-                                .scaleEffect(0.6)
-                        )
+                        .opacity(videoPreviewReady ? 1.0 : 0.0)
+                        .animation(.easeInOut(duration: 0.4), value: videoPreviewReady)
                 }
 
                 // Delete button - bottom right, on hover
-                if isHovering {
-                    VStack {
+                VStack {
+                    Spacer()
+                    HStack {
                         Spacer()
-                        HStack {
-                            Spacer()
-                            Button(action: {
-                                let videoName = entry.name
-                                let truncatedName = videoName.count > 15 ? String(videoName.prefix(15)) + "..." : videoName
-                                wallpaperManager.deleteEntry(entry)
-                                onToast("Removed \"\(truncatedName)\"")
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(isHoveringDelete ? .red : .white.opacity(0.8))
-                                    .shadow(color: .black.opacity(0.5), radius: 2)
-                            }
-                            .buttonStyle(.plain)
-                            .onHover { h in isHoveringDelete = h }
+                        Button(action: {
+                            let videoName = entry.name
+                            let truncatedName = videoName.count > 15 ? String(videoName.prefix(15)) + "..." : videoName
+                            wallpaperManager.deleteEntry(entry)
+                            onToast("Removed \"\(truncatedName)\"")
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(isHoveringDelete ? .red : .white.opacity(0.8))
+                                .shadow(color: .black.opacity(0.5), radius: 2)
+                                .animation(.easeInOut(duration: 0.2), value: isHoveringDelete)
                         }
-                        .padding(6)
+                        .buttonStyle(.plain)
+                        .onHover { h in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isHoveringDelete = h
+                            }
+                        }
+                        .opacity(isHovering ? 1.0 : 0.0)
+                        .animation(.easeInOut(duration: 0.2), value: isHovering)
                     }
+                    .padding(6)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        isPlaying ? Color.green :
-                            (isHovering ? Color.white.opacity(0.4) : Color.clear),
-                        lineWidth: isPlaying ? 3 : 2
-                    )
-                    .opacity(isPlaying ? (pulseAnimation ? 1.0 : 0.5) : 1.0)
+                ZStack {
+                    // Border with single gradient color when playing - fades in/out
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(
+                            dominantColors[0],
+                            lineWidth: isHovering ? 4 : 2
+                        )
+                        .opacity(isPlaying ? (pulseAnimation ? 0.8 : 0.4) : 0.0)
+                        // Multiple shadow layers with the same color to create glow
+                        .shadow(
+                            color: dominantColors[0].opacity(isPlaying ? (pulseAnimation ? 1.0 : 0.7) : 0.0),
+                            radius: isHovering ? (pulseAnimation ? 18 : 12) : (pulseAnimation ? 16 : 10)
+                        )
+                        .shadow(
+                            color: dominantColors[0].opacity(isPlaying ? (pulseAnimation ? 0.9 : 0.65) : 0.0),
+                            radius: isHovering ? (pulseAnimation ? 14 : 9) : (pulseAnimation ? 12 : 8)
+                        )
+                        .shadow(
+                            color: dominantColors[0].opacity(isPlaying ? (pulseAnimation ? 0.7 : 0.5) : 0.0),
+                            radius: isHovering ? (pulseAnimation ? 10 : 7) : (pulseAnimation ? 8 : 6)
+                        )
+                        .shadow(
+                            color: dominantColors[0].opacity(isPlaying ? (pulseAnimation ? 0.5 : 0.3) : 0.0),
+                            radius: isHovering ? (pulseAnimation ? 8 : 5) : (pulseAnimation ? 6 : 4)
+                        )
+                        .animation(.easeInOut(duration: 0.3), value: isPlaying)
+                    
+                    // Subtle single color outline when hovering but not playing
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(
+                            dominantColors[0],
+                            lineWidth: 2.5
+                        )
+                        .opacity(isHovering && !isPlaying ? 0.3 : 0.0)
+                        .shadow(
+                            color: dominantColors[0].opacity(isHovering && !isPlaying ? 0.4 : 0.0),
+                            radius: 8
+                        )
+                        .shadow(
+                            color: dominantColors[0].opacity(isHovering && !isPlaying ? 0.3 : 0.0),
+                            radius: 6
+                        )
+                        .animation(.easeInOut(duration: 0.2), value: isHovering)
+                }
             )
-            .shadow(
-                color: isPlaying ? Color.green.opacity(pulseAnimation ? 0.4 : 0.2) : Color.black.opacity(0.15),
-                radius: isPlaying ? (pulseAnimation ? 8 : 4) : 4,
-                y: isPlaying ? 0 : 2
-            )
-            .scaleEffect(isHovering ? 1.02 : 1.0)
             .contentShape(Rectangle())
             .onTapGesture {
                 guard !isHoveringDelete else { return }
@@ -419,12 +589,15 @@ struct VideoEntryCard: View {
             }
             .onChange(of: isPlaying) { playing in
                 if playing {
-                    // Start pulsating animation
-                    withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                    // Fade in glow and start pulsating animation
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        // Glow will fade in via opacity
+                    }
+                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
                         pulseAnimation = true
                     }
                 } else {
-                    // Stop animation
+                    // Fade out glow and stop animation
                     withAnimation(.easeOut(duration: 0.3)) {
                         pulseAnimation = false
                     }
@@ -433,21 +606,142 @@ struct VideoEntryCard: View {
             .onAppear {
                 // Initialize animation state if already playing
                 if isPlaying {
-                    withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
                         pulseAnimation = true
                     }
                 }
+                // Extract colors from video
+                extractColorsFromVideo()
+                
+                // Reset preview ready state when card appears
+                videoPreviewReady = false
+                
+                // Mark preview as ready after a short delay to allow video to start loading
+                if entry.videoURL != nil, entry.isDownloaded {
+                    Task {
+                        // Wait a bit for the video to start loading and render first frame
+                        try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
+                        await MainActor.run {
+                            withAnimation(.easeInOut(duration: 0.4)) {
+                                videoPreviewReady = true
+                            }
+                        }
+                    }
+                } else {
+                    videoPreviewReady = false
+                }
+            }
+            .onChange(of: entry.videoURL) { _ in
+                extractColorsFromVideo()
             }
         }
         .aspectRatio(16/9, contentMode: .fit)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(.easeOut(duration: 0.2)) {
                 isHovering = hovering
-                if !hovering { isHoveringDelete = false }
+            }
+            if !hovering { 
+                isHoveringDelete = false
             }
         }
     }
+    
+    private func extractColorsFromVideo() {
+        guard let videoURL = entry.videoURL, entry.isDownloaded else {
+            dominantColors = [.blue, .blue]
+            return
+        }
+        
+        Task {
+            let colors = await extractDominantColors(from: videoURL)
+            await MainActor.run {
+                dominantColors = colors
+            }
+        }
+    }
+    
+    private func extractDominantColors(from url: URL) async -> [Color] {
+        let asset = AVAsset(url: url)
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+        imageGenerator.requestedTimeToleranceAfter = .zero
+        imageGenerator.requestedTimeToleranceBefore = .zero
+        
+        // Get frame at 1 second (or start)
+        let duration = try? await asset.load(.duration)
+        let time = min(CMTime(seconds: 1.0, preferredTimescale: 600), duration ?? CMTime.zero)
+        
+        guard let cgImage = try? await imageGenerator.image(at: time).image else {
+            return [.blue, .blue]
+        }
+        
+        // Extract colors from different areas using Core Image
+        let ciImage = CIImage(cgImage: cgImage)
+        let context = CIContext()
+        let size = ciImage.extent.size
+        
+        var colors: [Color] = []
+        
+        // Sample colors from different areas (corners and center)
+        let positions: [(CGFloat, CGFloat)] = [
+            (0.15, 0.15),    // top-left
+            (0.85, 0.15),    // top-right
+            (0.15, 0.85),    // bottom-left
+            (0.85, 0.85),    // bottom-right
+            (0.5, 0.5)       // center
+        ]
+        
+        let sampleSize = CGSize(width: size.width * 0.15, height: size.height * 0.15)
+        
+        for (x, y) in positions {
+            let rect = CGRect(
+                x: size.width * x - sampleSize.width / 2,
+                y: size.height * y - sampleSize.height / 2,
+                width: sampleSize.width,
+                height: sampleSize.height
+            )
+            
+            let filter = CIFilter(name: "CIAreaAverage")
+            filter?.setValue(ciImage, forKey: kCIInputImageKey)
+            filter?.setValue(CIVector(cgRect: rect), forKey: kCIInputExtentKey)
+            
+            if let outputImage = filter?.outputImage,
+               let outputCGImage = context.createCGImage(outputImage, from: outputImage.extent) {
+                // Get pixel data
+                let colorSpace = CGColorSpaceCreateDeviceRGB()
+                let bytesPerPixel = 4
+                let bytesPerRow = bytesPerPixel
+                let bitsPerComponent = 8
+                var pixelData = [UInt8](repeating: 0, count: bytesPerPixel)
+                
+                if let context = CGContext(
+                    data: &pixelData,
+                    width: 1,
+                    height: 1,
+                    bitsPerComponent: bitsPerComponent,
+                    bytesPerRow: bytesPerRow,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ) {
+                    context.draw(outputCGImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                    let r = CGFloat(pixelData[0]) / 255.0
+                    let g = CGFloat(pixelData[1]) / 255.0
+                    let b = CGFloat(pixelData[2]) / 255.0
+                    colors.append(Color(red: r, green: g, blue: b))
+                }
+            }
+        }
+        
+        // If we got colors, use them; otherwise default to blue
+        if colors.isEmpty {
+            return [.blue, .blue]
+        }
+        
+        // Return up to 3 most distinct colors
+        return Array(colors.prefix(3))
+    }
 }
+
 
 // MARK: - Settings View
 
@@ -824,6 +1118,71 @@ struct VisualEffectView: NSViewRepresentable {
     func updateNSView(_ visualEffectView: NSVisualEffectView, context: Context) {
         visualEffectView.material = material
         visualEffectView.blendingMode = blendingMode
+    }
+}
+
+// MARK: - Drag and Drop Delegate
+
+struct VideoDropDelegate: DropDelegate {
+    let wallpaperManager: VideoWallpaperManager
+    let onToast: (String) -> Void
+    
+    func validateDrop(info: DropInfo) -> Bool {
+        // Check if we have file URLs
+        return info.hasItemsConforming(to: [.fileURL])
+    }
+    
+    func performDrop(info: DropInfo) -> Bool {
+        let itemProviders = info.itemProviders(for: [.fileURL])
+        
+        guard !itemProviders.isEmpty else {
+            return false
+        }
+        
+        var validVideoURLs: [URL] = []
+        let videoExtensions = ["mp4", "mov", "m4v", "avi", "mkv", "webm"]
+        let group = DispatchGroup()
+        
+        // Process all dropped files
+        for itemProvider in itemProviders {
+            group.enter()
+            itemProvider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
+                defer { group.leave() }
+                
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                    return
+                }
+                
+                // Check if it's a video file
+                let pathExtension = url.pathExtension.lowercased()
+                
+                if videoExtensions.contains(pathExtension) {
+                    validVideoURLs.append(url)
+                }
+            }
+        }
+        
+        // Wait for all files to be processed, then add them to library
+        group.notify(queue: .main) {
+            Task { @MainActor in
+                // Add all valid videos to library
+                for url in validVideoURLs {
+                    await wallpaperManager.addVideo(from: url)
+                }
+                
+                // Show toast notification
+                if validVideoURLs.count > 0 {
+                    if validVideoURLs.count == 1 {
+                        onToast("Added to Library")
+                    } else {
+                        onToast("Added \(validVideoURLs.count) videos to Library")
+                    }
+                }
+            }
+        }
+        
+        return true
     }
 }
 

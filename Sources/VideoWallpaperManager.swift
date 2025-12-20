@@ -138,7 +138,14 @@ class VideoWallpaperManager: ObservableObject {
             downloadProgress: 1.0,
             downloadSize: fileSize
         )
-        videoEntries.append(entry)
+        // Add to entries and sort to maintain alphabetical order
+        // Wrap in MainActor.run to ensure UI updates happen on main thread
+        await MainActor.run {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                videoEntries.append(entry)
+                videoEntries.sort { $0.name < $1.name }
+            }
+        }
         
         // Save to local storage immediately
         storage.saveVideo(
@@ -228,8 +235,12 @@ class VideoWallpaperManager: ObservableObject {
             stopWallpaper()
         }
 
-        // Remove from UI immediately
-        videoEntries.removeAll { $0.id == entry.id }
+        // Remove from UI with animation
+        Task { @MainActor in
+            withAnimation(.easeInOut(duration: 0.25)) {
+                videoEntries.removeAll { $0.id == entry.id }
+            }
+        }
 
         // Clean up files and storage in background
         Task {

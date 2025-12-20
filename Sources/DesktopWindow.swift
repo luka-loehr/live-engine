@@ -8,9 +8,11 @@ final class DesktopWindow: NSWindow {
     private var playerView: AVPlayerView?
     private var fadeOverlay: NSView?
     private var animationGeneration: Int = 0  // Track animation generation to ignore stale callbacks
+    private let targetScreen: NSScreen
     
-    init() {
-        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+    init(screen: NSScreen) {
+        self.targetScreen = screen
+        let screenFrame = screen.frame
         
         super.init(
             contentRect: screenFrame,
@@ -32,7 +34,7 @@ final class DesktopWindow: NSWindow {
         backgroundColor = .clear
         ignoresMouseEvents = true
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        setFrame(NSScreen.main?.frame ?? frame, display: true)
+        setFrame(targetScreen.frame, display: true)
         
         // Create player view
         let view = AVPlayerView()
@@ -68,8 +70,10 @@ final class DesktopWindow: NSWindow {
     }
     
     @objc private func screenDidChange(_ notification: Notification) {
-        if let screen = NSScreen.main {
-            setFrame(screen.frame, display: true)
+        // Update frame if this window's screen still exists
+        let screens = NSScreen.screens
+        if screens.contains(targetScreen) {
+            setFrame(targetScreen.frame, display: true)
         }
     }
     
