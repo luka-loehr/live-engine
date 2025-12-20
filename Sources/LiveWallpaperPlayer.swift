@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import AVFoundation
+import MediaPlayer
 
 /// A simple component that displays an MP4 video as a live wallpaper with infinite looping
 @MainActor
@@ -10,6 +11,7 @@ class LiveWallpaperPlayer: ObservableObject {
     private var player: AVPlayer?
     private var loopObserver: NSObjectProtocol?
     private var screenChangeObserver: NSObjectProtocol?
+    private var nowPlayingClearTimer: Timer?
     private var audioEnabled: Bool = false
     
     init() {
@@ -59,6 +61,12 @@ class LiveWallpaperPlayer: ObservableObject {
         let newPlayer = AVPlayer(url: videoURL)
         newPlayer.actionAtItemEnd = .none
         
+        // Prevent player from appearing in macOS Now Playing/Media controls
+        newPlayer.allowsExternalPlayback = false
+        
+        // Clear any Now Playing info to prevent macOS from detecting this as media
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        
         // Store player reference early so audio settings can be applied
         self.player = newPlayer
         
@@ -85,11 +93,34 @@ class LiveWallpaperPlayer: ObservableObject {
         // This ensures the first frame is hidden behind the fade overlay
         try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
         newPlayer.play()
+        
+        // Ensure Now Playing info stays cleared after playback starts
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        
+        // Periodically clear Now Playing info to prevent macOS from detecting this as media
+        // AVPlayerView may try to register with media controls, so we need to keep clearing it
+        nowPlayingClearTimer?.invalidate()
+        nowPlayingClearTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard self?.player != nil else {
+                self?.nowPlayingClearTimer?.invalidate()
+                self?.nowPlayingClearTimer = nil
+                return
+            }
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        }
+        RunLoop.main.add(nowPlayingClearTimer!, forMode: .common)
     }
     
     /// Stops the wallpaper playback
     func stop() {
         print("[PLAYER] Stopping wallpaper playback")
+        
+        // Stop the Now Playing clear timer
+        nowPlayingClearTimer?.invalidate()
+        nowPlayingClearTimer = nil
+        
+        // Clear Now Playing info when stopping
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         
         // Remove loop observer
         if let observer = loopObserver {

@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import MediaPlayer
 
 final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool { false }
@@ -44,6 +45,11 @@ final class DesktopWindow: NSWindow {
         view.autoresizingMask = [.width, .height]
         view.wantsLayer = true
         view.layer?.drawsAsynchronously = true
+        
+        // Prevent this player from appearing in macOS media controls
+        // AVPlayerView doesn't have direct properties for this, but we'll handle it
+        // by clearing Now Playing info whenever the player is set
+        
         contentView?.addSubview(view)
         playerView = view
         
@@ -78,6 +84,9 @@ final class DesktopWindow: NSWindow {
     }
     
     func setPlayer(_ player: AVPlayer?, animated: Bool = true) {
+        // Clear Now Playing info to prevent macOS from detecting this as media
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        
         // Increment generation to invalidate any pending animation callbacks
         animationGeneration += 1
         let currentGeneration = animationGeneration
