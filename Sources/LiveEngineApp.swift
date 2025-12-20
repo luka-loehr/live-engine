@@ -48,16 +48,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
-            // Try to load custom app icon from bundle
-            if let appIconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
-               let appIcon = NSImage(contentsOfFile: appIconPath) {
-                // Resize icon for menu bar (typically 18x18 or 22x22 points)
-                let resizedIcon = NSImage(size: NSSize(width: 18, height: 18))
-                resizedIcon.lockFocus()
-                appIcon.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
-                resizedIcon.unlockFocus()
-                resizedIcon.isTemplate = true
-                button.image = resizedIcon
+            // Try to load dedicated menu bar icon (template PNG or PDF)
+            // Menu bar icons should be monochrome template images for proper tinting
+            var menuBarIcon: NSImage? = nil
+            
+            // Try menu bar specific icon files (in order of preference)
+            if let iconPath = Bundle.main.path(forResource: "MenuBarIcon", ofType: "pdf"),
+               let icon = NSImage(contentsOfFile: iconPath) {
+                menuBarIcon = icon
+            } else if let iconPath = Bundle.main.path(forResource: "MenuBarIcon", ofType: "png"),
+                      let icon = NSImage(contentsOfFile: iconPath) {
+                menuBarIcon = icon
+            } else if let iconPath = Bundle.main.path(forResource: "menu-bar-icon", ofType: "png"),
+                      let icon = NSImage(contentsOfFile: iconPath) {
+                menuBarIcon = icon
+            }
+            
+            if let icon = menuBarIcon {
+                // Set as template so macOS can tint it for light/dark mode
+                icon.isTemplate = true
+                // Ensure proper size for menu bar (18x18 or 22x22 points)
+                icon.size = NSSize(width: 18, height: 18)
+                button.image = icon
             } else if let image = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Live Wallpaper") {
                 // Fallback to SF Symbol
                 image.isTemplate = true
