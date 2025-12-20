@@ -7,6 +7,7 @@ final class DesktopWindow: NSWindow {
     
     private var playerView: AVPlayerView?
     private var fadeOverlay: NSView?
+    private var animationGeneration: Int = 0  // Track animation generation to ignore stale callbacks
     
     init() {
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
@@ -73,26 +74,59 @@ final class DesktopWindow: NSWindow {
     }
     
     func setPlayer(_ player: AVPlayer?, animated: Bool = true) {
-        if animated && playerView?.player != nil && player != nil {
+        // Increment generation to invalidate any pending animation callbacks
+        animationGeneration += 1
+        let currentGeneration = animationGeneration
+        
+        if player == nil {
+            // Stopping - hide the window
+            if animated {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    fadeOverlay?.animator().alphaValue = 1.0
+                }) { [weak self] in
+                    // Only proceed if this is still the current animation
+                    guard let self = self, self.animationGeneration == currentGeneration else { return }
+                    self.playerView?.player = nil
+                    self.orderOut(nil) // Hide window
+                    self.fadeOverlay?.alphaValue = 0.0
+                }
+            } else {
+                playerView?.player = nil
+                orderOut(nil) // Hide window
+            }
+        } else if animated && playerView?.player != nil {
             // Fade transition: fade out old, switch player, fade in new
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.3
                 fadeOverlay?.animator().alphaValue = 1.0
             }) { [weak self] in
-                self?.playerView?.player = player
+                guard let self = self, self.animationGeneration == currentGeneration else { return }
+                self.playerView?.player = player
                 NSAnimationContext.runAnimationGroup({ context in
                     context.duration = 0.3
-                    self?.fadeOverlay?.animator().alphaValue = 0.0
+                    self.fadeOverlay?.animator().alphaValue = 0.0
                 })
             }
+            orderBack(nil)
+        } else if animated {
+            // First play with animation - fade in from black
+            // Set overlay to fully opaque BEFORE setting player and showing window
+            fadeOverlay?.alphaValue = 1.0
+            // Set the player while overlay is covering it
+            playerView?.player = player
+            // Now show the window (player is hidden behind black overlay)
+            orderBack(nil)
+            // Start fade-in animation immediately
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.6
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                fadeOverlay?.animator().alphaValue = 0.0
+            })
         } else {
-            // Instant switch
+            // Instant switch (no animation)
             playerView?.player = player
             fadeOverlay?.alphaValue = 0.0
-        }
-        
-        if player != nil {
-            // Ensure window stays visible
             orderBack(nil)
         }
     }
