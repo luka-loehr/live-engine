@@ -1,6 +1,5 @@
 import AppKit
 import AVFoundation
-import MediaPlayer
 
 /// Custom view that uses AVPlayerLayer directly (not AVPlayerView) to avoid macOS Media Center registration
 final class VideoLayerView: NSView {
