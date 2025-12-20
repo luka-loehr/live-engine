@@ -110,17 +110,61 @@ class LiveWallpaperPlayer: ObservableObject {
         print("[PLAYER] Wallpaper stopped")
     }
     
-    /// Sets whether audio should be enabled
+    /// Sets whether audio should be enabled with smooth fade in/out
     /// - Parameter enabled: Whether audio should play
     func setAudioEnabled(_ enabled: Bool) {
         audioEnabled = enabled
-        if let player = player {
-            player.isMuted = !enabled
-            player.volume = enabled ? 1.0 : 0.0
-            print("[PLAYER] Audio \(enabled ? "enabled" : "disabled") - muted: \(player.isMuted), volume: \(player.volume)")
-        } else {
+        guard let player = player else {
             print("[PLAYER] Audio setting saved (\(enabled ? "enabled" : "disabled")) but no player active yet")
+            return
         }
+        
+        if enabled {
+            // Fade in: unmute and gradually increase volume
+            player.isMuted = false
+            fadeVolume(from: 0.0, to: 1.0, duration: 1.0, player: player)
+            print("[PLAYER] Audio fading in - muted: false")
+        } else {
+            // Fade out: gradually decrease volume, then mute
+            let currentVolume = player.volume
+            fadeVolume(from: currentVolume, to: 0.0, duration: 1.0, player: player) {
+                player.isMuted = true
+            }
+            print("[PLAYER] Audio fading out - will mute after fade")
+        }
+    }
+    
+    /// Fades the volume smoothly over the specified duration
+    private func fadeVolume(from startVolume: Float, to endVolume: Float, duration: TimeInterval, player: AVPlayer, completion: (() -> Void)? = nil) {
+        let startTime = CACurrentMediaTime()
+        let endTime = startTime + duration
+        
+        // Use a timer to update volume smoothly
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak player] timer in
+            guard let player = player else {
+                timer.invalidate()
+                return
+            }
+            
+            let currentTime = CACurrentMediaTime()
+            if currentTime >= endTime {
+                player.volume = endVolume
+                timer.invalidate()
+                completion?()
+            } else {
+                let progress = Float((currentTime - startTime) / duration)
+                let easedProgress = Self.easeInOut(progress) // Smooth easing
+                player.volume = startVolume + (endVolume - startVolume) * easedProgress
+            }
+        }
+        
+        // Ensure timer runs on main thread
+        RunLoop.main.add(timer, forMode: .common)
+    }
+    
+    /// Easing function for smooth transitions
+    nonisolated private static func easeInOut(_ t: Float) -> Float {
+        return t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
     }
     
     // MARK: - Private Helpers
