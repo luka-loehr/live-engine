@@ -31,7 +31,7 @@ NSRect(x: 0, y: 0, width: size, height: size).fill()
 // Draw a simple, clean icon: Play button inside a rounded rectangle frame
 // This represents video/wallpaper
 
-let padding: CGFloat = 6
+let padding: CGFloat = 4  // Reduced padding to make icon bigger
 let frameRect = NSRect(x: padding, y: padding, width: size - padding * 2, height: size - padding * 2)
 let cornerRadius: CGFloat = 4
 
@@ -41,8 +41,8 @@ NSColor.black.set()
 framePath.lineWidth = 1.5
 framePath.stroke()
 
-// Draw play triangle inside
-let playSize: CGFloat = 10
+// Draw play triangle inside (bigger)
+let playSize: CGFloat = 14  // Increased from 10 to 14
 let playX = size / 2 - playSize / 2 + 1 // Slight offset to center visually
 let playY = size / 2 - playSize / 2
 
