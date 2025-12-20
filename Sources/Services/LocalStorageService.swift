@@ -37,6 +37,7 @@ struct AppSettings: Codable {
     var autoPlay: Bool = false
     var autoStartOnLaunch: Bool = false
     var lastWallpaperID: String? = nil
+    var libraryOrder: [String] = [] // Order of video IDs in library
 }
 
 // MARK: - Local Storage Service
@@ -139,6 +140,32 @@ class LocalStorageService: ObservableObject {
 
     func getLibraryVideos() -> [LocalVideo] {
         return libraryVideosCache
+    }
+    
+    func getLibraryVideosInOrder() -> [LocalVideo] {
+        // If we have a saved order, use it; otherwise return cached order
+        if !settings.libraryOrder.isEmpty {
+            var orderedVideos: [LocalVideo] = []
+            var unorderedVideos = libraryVideosCache
+            
+            // Add videos in saved order
+            for videoId in settings.libraryOrder {
+                if let index = unorderedVideos.firstIndex(where: { $0.id == videoId }) {
+                    orderedVideos.append(unorderedVideos.remove(at: index))
+                }
+            }
+            
+            // Add any new videos that weren't in the saved order (at the end)
+            orderedVideos.append(contentsOf: unorderedVideos)
+            
+            return orderedVideos
+        }
+        
+        return libraryVideosCache
+    }
+    
+    func saveLibraryOrder(_ order: [String]) {
+        updateSettings { $0.libraryOrder = order }
     }
 
     func addToLibrary(videoId: String) {

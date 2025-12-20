@@ -89,7 +89,24 @@ class VideoWallpaperManager: ObservableObject {
             ))
         }
 
-        self.videoEntries = entries.sorted { $0.name < $1.name }
+        // Load videos in saved order, or sort alphabetically if no order saved
+        let orderedVideos = storage.getLibraryVideosInOrder()
+        let videoMap = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        
+        var orderedEntries: [VideoEntry] = []
+        for video in orderedVideos {
+            if let entry = videoMap[video.id] {
+                orderedEntries.append(entry)
+            }
+        }
+        
+        // Add any entries that weren't in the ordered list (new videos)
+        let orderedIDs = Set(orderedEntries.map { $0.id })
+        for entry in entries where !orderedIDs.contains(entry.id) {
+            orderedEntries.append(entry)
+        }
+        
+        self.videoEntries = orderedEntries
         print("[LIBRARY] Loaded \(entries.count) videos into library")
     }
     
@@ -138,13 +155,16 @@ class VideoWallpaperManager: ObservableObject {
             downloadProgress: 1.0,
             downloadSize: fileSize
         )
-        // Add to entries and sort to maintain alphabetical order
+        // Add to entries - append to end to maintain user's order
         // Wrap in MainActor.run to ensure UI updates happen on main thread
         await MainActor.run {
             withAnimation(.easeInOut(duration: 0.5)) {
                 videoEntries.append(entry)
-                videoEntries.sort { $0.name < $1.name }
             }
+            
+            // Save the new order (with new video at the end)
+            let order = videoEntries.map { $0.id }
+            storage.saveLibraryOrder(order)
         }
         
         // Save to local storage immediately
@@ -240,6 +260,10 @@ class VideoWallpaperManager: ObservableObject {
             withAnimation(.easeInOut(duration: 0.25)) {
                 videoEntries.removeAll { $0.id == entry.id }
             }
+            
+            // Update saved order after deletion
+            let order = videoEntries.map { $0.id }
+            storage.saveLibraryOrder(order)
         }
 
         // Clean up files and storage in background
@@ -266,6 +290,10 @@ class VideoWallpaperManager: ObservableObject {
             let item = videoEntries.remove(at: sourceIndex)
             videoEntries.insert(item, at: targetIndex)
         }
+        
+        // Save the new order
+        let order = videoEntries.map { $0.id }
+        storage.saveLibraryOrder(order)
     }
     
     // MARK: - Playback
