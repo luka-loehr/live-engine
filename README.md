@@ -96,5 +96,4 @@ Use the provided script:
 
 ---
 
-Developed by [Luka Löhr](https://github.com/luka-loehr)  
-Inspired by [Plash](https://github.com/sindresorhus/Plash) for the desktop window technique.
+Developed by [Luka Löhr](https://github.com/luka-loehr)
