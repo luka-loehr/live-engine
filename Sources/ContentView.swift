@@ -226,7 +226,7 @@ struct LibraryView: View {
     @Binding var showingURLInput: Bool
     var onAdded: () -> Void = {}
     var onToast: (String) -> Void = { _ in }
-    @State private var draggedEntry: VideoEntry?
+    @State private var draggedEntryID: String?
 
     let columns = [
         GridItem(.adaptive(minimum: 140), spacing: 12)
@@ -241,18 +241,26 @@ struct LibraryView: View {
                         VideoEntryCard(
                             entry: entry,
                             wallpaperManager: wallpaperManager,
-                            onToast: onToast
+                            onToast: onToast,
+                            isDragging: draggedEntryID == entry.id
                         )
                         .id(entry.id)
-                        .opacity(draggedEntry?.id == entry.id ? 0.5 : 1.0)
                         .onDrag {
-                            draggedEntry = entry
+                            draggedEntryID = entry.id
                             return NSItemProvider(object: entry.id as NSString)
+                        } preview: {
+                            VideoEntryCard(
+                                entry: entry,
+                                wallpaperManager: wallpaperManager,
+                                onToast: { _ in },
+                                isDragging: false
+                            )
+                            .frame(width: 200, height: 112)
                         }
                         .onDrop(of: [.text], delegate: VideoDropReorderDelegate(
                             entry: entry,
                             wallpaperManager: wallpaperManager,
-                            draggedEntry: $draggedEntry
+                            draggedEntryID: $draggedEntryID
                         ))
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.9)),
@@ -470,6 +478,7 @@ struct VideoEntryCard: View {
     let entry: VideoEntry
     @ObservedObject var wallpaperManager: VideoWallpaperManager
     var onToast: (String) -> Void = { _ in }
+    var isDragging: Bool = false
     @State private var isHovering = false
     @State private var isHoveringDelete = false
     @State private var pulseAnimation = false
@@ -500,8 +509,9 @@ struct VideoEntryCard: View {
                     VideoPreviewView(videoURL: videoURL, isPlaying: .constant(true))
                         .frame(width: geometry.size.width, height: geometry.size.width * 9/16)
                         .clipped()
-                        .opacity(videoPreviewReady ? 1.0 : 0.0)
+                        .opacity(videoPreviewReady && !isDragging ? 1.0 : (isDragging ? 0.3 : 0.0))
                         .animation(.easeInOut(duration: 0.4), value: videoPreviewReady)
+                        .animation(.easeInOut(duration: 0.2), value: isDragging)
                 }
 
                 // Delete button - bottom right, on hover
@@ -1137,26 +1147,44 @@ struct VisualEffectView: NSViewRepresentable {
 struct VideoDropReorderDelegate: DropDelegate {
     let entry: VideoEntry
     let wallpaperManager: VideoWallpaperManager
-    @Binding var draggedEntry: VideoEntry?
+    @Binding var draggedEntryID: String?
     
     func performDrop(info: DropInfo) -> Bool {
-        guard let draggedEntry = draggedEntry,
-              draggedEntry.id != entry.id else {
+        guard let draggedID = draggedEntryID,
+              let draggedEntry = wallpaperManager.videoEntries.first(where: { $0.id == draggedID }),
+              draggedID != entry.id else {
+            // Reset dragged state even if drop failed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                draggedEntryID = nil
+            }
             return false
         }
         
         wallpaperManager.moveEntry(from: draggedEntry, to: entry)
-        self.draggedEntry = nil
+        
+        // Reset dragged state after a short delay to allow animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            draggedEntryID = nil
+        }
         return true
     }
     
     func dropEntered(info: DropInfo) {
-        guard let draggedEntry = draggedEntry,
-              draggedEntry.id != entry.id else {
+        guard let draggedID = draggedEntryID,
+              let draggedEntry = wallpaperManager.videoEntries.first(where: { $0.id == draggedID }),
+              draggedID != entry.id else {
             return
         }
         
         wallpaperManager.moveEntry(from: draggedEntry, to: entry)
+    }
+    
+    func dropExited(info: DropInfo) {
+        // Optional: handle when drag exits
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
     }
 }
 
