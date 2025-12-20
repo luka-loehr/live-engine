@@ -2,6 +2,8 @@ import Foundation
 import AppKit
 import SwiftUI
 import AVFoundation
+import ServiceManagement
+import CoreServices
 
 @MainActor
 class VideoWallpaperManager: ObservableObject {
@@ -18,6 +20,7 @@ class VideoWallpaperManager: ObservableObject {
     @Published var autoStartOnLaunch: Bool {
         didSet {
             LocalStorageService.shared.updateSettings { $0.autoStartOnLaunch = autoStartOnLaunch }
+            updateLoginItem()
         }
     }
 
@@ -46,12 +49,70 @@ class VideoWallpaperManager: ObservableObject {
             await loadLibrary()
             // Restore last wallpaper if auto start is enabled
             await restoreLastWallpaperIfNeeded()
+            // Update login item status based on current setting
+            updateLoginItem()
         }
     }
     
     private func updateCurrentPlayerAudio() {
         // Update audio setting on the wallpaper player
         wallpaperPlayer.setAudioEnabled(audioEnabled)
+    }
+    
+    private func updateLoginItem() {
+        // Add or remove app from login items based on autoStartOnLaunch setting
+        // Note: Uses deprecated API but it still works on modern macOS
+        let appURL = Bundle.main.bundleURL
+        let appURLRef = appURL as CFURL
+        
+        guard let loginItems = LSSharedFileListCreate(nil, kLSSharedFileListSessionLoginItems.takeUnretainedValue(), nil)?.takeRetainedValue() else {
+            print("[SETTINGS] Failed to access login items list")
+            return
+        }
+        
+        if autoStartOnLaunch {
+            // Check if already in login items
+            var found = false
+            if let loginItemsArray = LSSharedFileListCopySnapshot(loginItems, nil)?.takeRetainedValue() as? [LSSharedFileListItem] {
+                for item in loginItemsArray {
+                    if let itemURL = LSSharedFileListItemCopyResolvedURL(item, 0, nil)?.takeRetainedValue() {
+                        if itemURL as URL == appURL {
+                            found = true
+                            break
+                        }
+                    }
+                }
+            }
+            
+            // Add to login items if not already there
+            if !found {
+                let item = LSSharedFileListInsertItemURL(loginItems, kLSSharedFileListItemBeforeFirst.takeUnretainedValue(), nil, nil, appURLRef, nil, nil)
+                if item != nil {
+                    print("[SETTINGS] Added app to login items")
+                } else {
+                    print("[SETTINGS] Failed to add app to login items")
+                }
+            } else {
+                print("[SETTINGS] App already in login items")
+            }
+        } else {
+            // Remove from login items
+            if let loginItemsArray = LSSharedFileListCopySnapshot(loginItems, nil)?.takeRetainedValue() as? [LSSharedFileListItem] {
+                for item in loginItemsArray {
+                    if let itemURL = LSSharedFileListItemCopyResolvedURL(item, 0, nil)?.takeRetainedValue() {
+                        if itemURL as URL == appURL {
+                            let result = LSSharedFileListItemRemove(loginItems, item)
+                            if result == noErr {
+                                print("[SETTINGS] Removed app from login items")
+                            } else {
+                                print("[SETTINGS] Failed to remove app from login items: \(result)")
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+        }
     }
     
     

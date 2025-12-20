@@ -826,7 +826,7 @@ struct SettingsView: View {
                         SettingsRow(
                             icon: wallpaperManager.autoStartOnLaunch ? "play.circle.fill" : "play.circle",
                             title: "Auto Start on Launch",
-                            subtitle: "Automatically restore last wallpaper on app launch",
+                            subtitle: "Automatically restore last wallpaper on app launch and user login",
                             isEnabled: wallpaperManager.autoStartOnLaunch
                         ) {
                             Toggle("", isOn: $wallpaperManager.autoStartOnLaunch)
