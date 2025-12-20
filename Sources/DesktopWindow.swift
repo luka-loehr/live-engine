@@ -136,16 +136,16 @@ final class DesktopWindow: NSWindow {
             }
             orderBack(nil)
         } else if animated {
-            // First play with animation - fade in from black
+            // Fade in from black - 1 second duration
             // Set overlay to fully opaque BEFORE setting player and showing window
             fadeOverlay?.alphaValue = 1.0
             // Set the player while overlay is covering it
             videoLayerView?.setPlayer(player)
             // Now show the window (player is hidden behind black overlay)
             orderBack(nil)
-            // Start fade-in animation immediately
+            // Start fade-in animation - exactly 1 second
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.6
+                context.duration = 1.0
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 fadeOverlay?.animator().alphaValue = 0.0
             })

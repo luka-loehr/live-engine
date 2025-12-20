@@ -82,9 +82,8 @@ class LiveWallpaperPlayer: ObservableObject {
             window.setPlayer(newPlayer, animated: true)
         }
         
-        // Start playback after a short delay to allow fade-in to begin
-        // This ensures the first frame is hidden behind the fade overlay
-        try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
+        // Start playback immediately - the fade overlay will handle the fade-in effect
+        // The overlay starts at alpha 1.0 (black) and fades to 0.0 over 1 second
         newPlayer.play()
     }
     
