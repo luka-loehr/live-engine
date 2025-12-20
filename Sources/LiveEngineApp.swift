@@ -12,7 +12,7 @@ struct LiveEngineApp: App {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var wallpaperManager: VideoWallpaperManager!
     var menu: NSMenu!
@@ -86,36 +86,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func createMenu() {
         menu = NSMenu()
         
-        // Show Window item
-        let showWindowItem = NSMenuItem(
-            title: "Show Window",
+        // Library item
+        let libraryItem = NSMenuItem(
+            title: "Library",
             action: #selector(showMainWindow),
             keyEquivalent: "w"
         )
-        showWindowItem.target = self
-        menu.addItem(showWindowItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        // Play/Pause item
-        let playPauseItem = NSMenuItem(
-            title: wallpaperManager.currentPlayingID != nil ? "Pause" : "Play",
-            action: #selector(togglePlayPause),
-            keyEquivalent: ""
-        )
-        playPauseItem.target = self
-        menu.addItem(playPauseItem)
-        
-        // Audio toggle item
-        let audioItem = NSMenuItem(
-            title: wallpaperManager.audioEnabled ? "Audio: On" : "Audio: Off",
-            action: #selector(toggleAudio),
-            keyEquivalent: ""
-        )
-        audioItem.target = self
-        menu.addItem(audioItem)
-        
-        menu.addItem(NSMenuItem.separator())
+        libraryItem.target = self
+        menu.addItem(libraryItem)
         
         // Settings item
         let settingsItem = NSMenuItem(
@@ -126,16 +104,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
         
+        // Audio toggle item
+        let audioItem = NSMenuItem(
+            title: wallpaperManager.audioEnabled ? "Audio" : "Audio",
+            action: #selector(toggleAudio),
+            keyEquivalent: ""
+        )
+        audioItem.target = self
+        audioItem.state = wallpaperManager.audioEnabled ? .on : .off
+        menu.addItem(audioItem)
+        
         menu.addItem(NSMenuItem.separator())
         
-        // Quit item
+        // Quit item with red highlight on hover
         let quitItem = NSMenuItem(
-            title: "Quit live-engine",
+            title: "Quit",
             action: #selector(quitApp),
             keyEquivalent: "q"
         )
         quitItem.target = self
+        quitItem.attributedTitle = NSAttributedString(
+            string: "Quit",
+            attributes: [.foregroundColor: NSColor.labelColor]
+        )
         menu.addItem(quitItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Version item at bottom
+        let versionItem = NSMenuItem(
+            title: "v1.0.0",
+            action: nil,
+            keyEquivalent: ""
+        )
+        versionItem.isEnabled = false
+        versionItem.attributedTitle = NSAttributedString(
+            string: "v1.0.0",
+            attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 11)
+            ]
+        )
+        menu.addItem(versionItem)
+        
+        // Set up menu delegate for hover effects
+        menu.delegate = self
     }
     
     @objc func showMainWindow() {
@@ -146,21 +159,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         
         // Update menu items based on current state
-        // Index 0: Show Window
-        // Index 1: Separator
-        // Index 2: Play/Pause
-        // Index 3: Audio
+        // Index 0: Library
+        // Index 1: Settings
+        // Index 2: Audio
+        // Index 3: Separator
+        // Index 4: Quit
+        // Index 5: Separator
+        // Index 6: Version
         
         Task { @MainActor in
-            if let playPauseItem = menu.item(at: 2) {
-                playPauseItem.title = wallpaperManager.currentPlayingID != nil ? "Pause" : "Play"
-            }
-            
-            if let audioItem = menu.item(at: 3) {
-                audioItem.title = wallpaperManager.audioEnabled ? "Audio: On" : "Audio: Off"
+            if let audioItem = menu.item(at: 2) {
+                audioItem.state = wallpaperManager.audioEnabled ? .on : .off
             }
             
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
+        }
+    }
+    
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        // Highlight Quit item in red on hover
+        if let item = item, item.title == "Quit" {
+            item.attributedTitle = NSAttributedString(
+                string: "Quit",
+                attributes: [.foregroundColor: NSColor.systemRed]
+            )
+        } else if let quitItem = menu.items.first(where: { $0.title == "Quit" }) {
+            // Reset Quit item color when not hovering
+            quitItem.attributedTitle = NSAttributedString(
+                string: "Quit",
+                attributes: [.foregroundColor: NSColor.labelColor]
+            )
         }
     }
     
