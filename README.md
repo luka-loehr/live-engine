@@ -7,6 +7,8 @@
 **Live Engine** is a macOS menu bar app that lets you set video files as your desktop wallpaper,  
 playing in a seamless loop. Built with Swift, featuring a clean native macOS interface.
 
+![Demo](Assets/demo.gif)
+
 ---
 
 ## Features
