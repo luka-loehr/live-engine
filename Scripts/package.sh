@@ -2,6 +2,10 @@
 
 set -e
 
+# Get the project root directory (parent of scripts directory)
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 APP_NAME="LiveEngine"
 DISPLAY_NAME="Live Engine"
 BUILD_DIR=".build/release"
